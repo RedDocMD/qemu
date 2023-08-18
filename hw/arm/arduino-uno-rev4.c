@@ -18,6 +18,7 @@ typedef struct RA4M1State {
     ARMv7MState armv7m;
     Clock *sysclk;
     MemoryRegion sram;
+    MemoryRegion flash;
 } RA4M1State;
 
 typedef struct RA4M1Class {
@@ -29,9 +30,56 @@ typedef struct RA4M1Class {
 #define RA4M1_PERIPHERAL_BASE 0x40000000
 #define RA4M1_SRAM_SIZE (32 << 10)
 #define RA4M1_SRAM_BASE 0x20000000
+#define RA4M1_FLASH_BASE 0
+#define RA4M1_FLASH_SIZE (256 << 10)
 #define RA4M1_CPU_HZ (48 << 20)
 #define RA4M1_NUM_IRQ 174
+#define RA4M1_VT_SIZE (RA4M1_NUM_IRQ + 16)
+#define DEFAULT_STACK_SIZE (1 << 10)
 
+static void init_rom(void)
+{
+    MemoryRegion *sm;
+    AddressSpace as;
+    uint32_t vt[RA4M1_VT_SIZE];
+    uint16_t instr[2];
+    MemTxResult res;
+
+    sm = get_system_memory();
+    address_space_init(&as, sm, "system-memory");
+
+    memset(vt, 0, sizeof(vt));
+    vt[0] = RA4M1_SRAM_BASE + DEFAULT_STACK_SIZE; // Initial sp
+    vt[1] = RA4M1_FLASH_BASE + sizeof(vt); // Instruction offset to jump to after reset
+
+    // Required for thumb
+    for (int i = 1; i < RA4M1_VT_SIZE; ++i) {
+        vt[i] |= 1;
+    }
+
+    res = address_space_write_rom(&as, 0, MEMTXATTRS_UNSPECIFIED, 
+                            vt, sizeof(vt));
+    if (res != MEMTX_OK) {
+        error_setg(&error_fatal, "failed to write to ROM");
+        goto cleanup;
+    }
+
+    // loop: nop
+    //       b loop
+    instr[0] = 0xBF00;
+    instr[1] = 0xE7FD;  
+
+    res = address_space_write_rom(&as, RA4M1_FLASH_BASE + sizeof(vt), MEMTXATTRS_UNSPECIFIED, 
+                                instr, sizeof(instr));
+    if (res != MEMTX_OK) {
+        error_setg(&error_fatal, "failed to write to ROM");
+        goto cleanup;
+    }
+ 
+cleanup:
+    address_space_destroy(&as);
+}
+ 
 #define TYPE_RA4M1 "ra4m1"
 OBJECT_DECLARE_TYPE(RA4M1State, RA4M1Class, RA4M1)
 
@@ -56,6 +104,9 @@ static void ra4m1_realize(DeviceState *dev, Error **errp)
 
     memory_region_init_ram(&s->sram, NULL, "RA4M1.sram", RA4M1_SRAM_SIZE, &error_abort);
     memory_region_add_subregion(system_memory, RA4M1_SRAM_BASE, &s->sram);
+
+    memory_region_init_rom(&s->flash, NULL, "RA4M1.flash", RA4M1_FLASH_SIZE, &error_abort);
+    memory_region_add_subregion(system_memory, RA4M1_FLASH_BASE, &s->flash);
 
     object_property_set_link(OBJECT(&s->armv7m), "memory",
                              OBJECT(system_memory), &error_abort);
@@ -123,6 +174,8 @@ static void arduino_uno_rev4_machine_init(MachineState *ms)
     qdev_connect_clock_in(DEVICE(&s->soc), "sysclk", sysclk);
     qdev_realize(DEVICE(&s->soc), NULL, &error_fatal);
 
+    init_rom();
+    // To force a proper reset
     armv7m_load_kernel(ARM_CPU(first_cpu), NULL, 0, 0);
 }
 
