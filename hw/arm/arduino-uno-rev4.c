@@ -33,7 +33,7 @@ typedef struct RA4M1Class {
 #define RA4M1_FLASH_BASE 0
 #define RA4M1_FLASH_SIZE (256 << 10)
 #define RA4M1_CPU_HZ (48 << 20)
-#define RA4M1_NUM_IRQ 174
+#define RA4M1_NUM_IRQ 32
 #define RA4M1_VT_SIZE (RA4M1_NUM_IRQ + 16)
 #define DEFAULT_STACK_SIZE (1 << 10)
 
@@ -42,7 +42,6 @@ static void init_rom(void)
     MemoryRegion *sm;
     AddressSpace as;
     uint32_t vt[RA4M1_VT_SIZE];
-    uint16_t instr[2];
     MemTxResult res;
 
     sm = get_system_memory();
@@ -64,10 +63,10 @@ static void init_rom(void)
         goto cleanup;
     }
 
-    // loop: nop
-    //       b loop
-    instr[0] = 0xBF00;
-    instr[1] = 0xE7FD;  
+    uint16_t instr[] = {
+        0xbf00, // loop: nop
+        0xe7fd, //       b loop
+    };
 
     res = address_space_write_rom(&as, RA4M1_FLASH_BASE + sizeof(vt), MEMTXATTRS_UNSPECIFIED, 
                                 instr, sizeof(instr));
@@ -176,7 +175,8 @@ static void arduino_uno_rev4_machine_init(MachineState *ms)
 
     init_rom();
     // To force a proper reset
-    armv7m_load_kernel(ARM_CPU(first_cpu), NULL, 0, 0);
+    // armv7m_load_kernel(ARM_CPU(first_cpu), NULL, 0, 0);
+    armv7m_load_kernel(ARM_CPU(first_cpu), ms->kernel_filename, 0, 0);
 }
 
 static void arduino_uno_rev4_machine_class_init(ObjectClass *oc, void *data)
