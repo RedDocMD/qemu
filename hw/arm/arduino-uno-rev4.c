@@ -5,6 +5,7 @@
 #include "target/arm/cpu.h"
 #include "qemu/cutils.h"
 #include "qemu/error-report.h"
+#include "qemu/log.h"
 #include "qapi/error.h"
 #include "exec/address-spaces.h"
 #include "hw/arm/armv7m.h"
@@ -12,6 +13,114 @@
 #include "hw/qdev-clock.h"
 #include "hw/qdev-properties.h"
 #include "hw/arm/boot.h"
+#include "hw/sysbus.h"
+#include "migration/vmstate.h"
+#include <stdarg.h>
+
+#define RA4M1_REGS_OFF 0x40010000
+
+#define VBTCR1_OFF 0xE41F
+#define VBTSR_OFF 0xE4B1
+
+#define TYPE_RA4M1_REGS "ra4m1-regs"
+OBJECT_DECLARE_SIMPLE_TYPE(RA4M1RegsState, RA4M1_REGS)
+
+typedef struct RA4M1RegsState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+
+    uint32_t vbtcr1;
+    uint32_t vbtsr;
+} RA4M1RegsState;
+
+static void ra4m1_regs_reset(DeviceState *dev)
+{
+    RA4M1RegsState *s = RA4M1_REGS(dev);
+
+    s->vbtcr1 = 0x00000000;
+    s->vbtsr = 0x00000000;
+}
+
+static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
+{
+    RA4M1RegsState *s = opaque;
+
+    switch (addr) {
+    case VBTCR1_OFF:
+        return s->vbtcr1;
+    case VBTSR_OFF:
+        return s->vbtsr;
+    default:
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx "\n",
+                      __func__, addr);
+        return 0;
+    }
+}
+
+static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
+                             unsigned int size)
+{
+    RA4M1RegsState *s = opaque;
+    uint32_t val = val64;
+
+    switch (addr) {
+    case VBTCR1_OFF:
+        s->vbtcr1 = val;
+        return;
+    case VBTSR_OFF:
+        // FIXME: Bit 4 must be read-only
+        s->vbtsr = val;
+        return;
+    }
+}
+
+static const MemoryRegionOps ra4m1_regs_ops = {
+    .read = ra4m1_regs_read,
+    .write = ra4m1_regs_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+};
+
+static void ra4m1_regs_init(Object *ob)
+{
+    RA4M1RegsState *s = RA4M1_REGS(ob);
+
+    memory_region_init_io(&s->mmio, ob, &ra4m1_regs_ops, s, TYPE_RA4M1_REGS,
+                          0x10000);
+    sysbus_init_mmio(SYS_BUS_DEVICE(ob), &s->mmio);
+}
+
+static const VMStateDescription vmstate_ra4m1_regs = {
+    .name = TYPE_RA4M1_REGS,
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields =
+        (VMStateField[]){
+            VMSTATE_UINT32(vbtcr1, RA4M1RegsState),
+            VMSTATE_UINT32(vbtsr, RA4M1RegsState),
+            VMSTATE_END_OF_LIST(),
+        }
+};
+
+static void ra4m1_regs_class_init(ObjectClass *class, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(class);
+    dc->reset = ra4m1_regs_reset;
+    dc->vmsd = &vmstate_ra4m1_regs;
+}
+
+static void ra4m1_regs_register_types(void)
+{
+    static const TypeInfo ra4m1_regs_info = {
+        .name = TYPE_RA4M1_REGS,
+        .parent = TYPE_SYS_BUS_DEVICE,
+        .instance_size = sizeof(RA4M1RegsState),
+        .instance_init = ra4m1_regs_init,
+        .class_init = ra4m1_regs_class_init,
+    };
+    type_register_static(&ra4m1_regs_info);
+}
+
+type_init(ra4m1_regs_register_types);
 
 typedef struct RA4M1State {
     DeviceState parent_state;
@@ -19,6 +128,7 @@ typedef struct RA4M1State {
     Clock *sysclk;
     MemoryRegion sram;
     MemoryRegion flash;
+    RA4M1RegsState regs;
 } RA4M1State;
 
 typedef struct RA4M1Class {
@@ -49,15 +159,16 @@ static void init_rom(void)
 
     memset(vt, 0, sizeof(vt));
     vt[0] = RA4M1_SRAM_BASE + DEFAULT_STACK_SIZE; // Initial sp
-    vt[1] = RA4M1_FLASH_BASE + sizeof(vt); // Instruction offset to jump to after reset
+    vt[1] = RA4M1_FLASH_BASE +
+            sizeof(vt); // Instruction offset to jump to after reset
 
     // Required for thumb
     for (int i = 1; i < RA4M1_VT_SIZE; ++i) {
         vt[i] |= 1;
     }
 
-    res = address_space_write_rom(&as, 0, MEMTXATTRS_UNSPECIFIED, 
-                            vt, sizeof(vt));
+    res =
+        address_space_write_rom(&as, 0, MEMTXATTRS_UNSPECIFIED, vt, sizeof(vt));
     if (res != MEMTX_OK) {
         error_setg(&error_fatal, "failed to write to ROM");
         goto cleanup;
@@ -68,17 +179,17 @@ static void init_rom(void)
         0xe7fd, //       b loop
     };
 
-    res = address_space_write_rom(&as, RA4M1_FLASH_BASE + sizeof(vt), MEMTXATTRS_UNSPECIFIED, 
-                                instr, sizeof(instr));
+    res = address_space_write_rom(&as, RA4M1_FLASH_BASE + sizeof(vt),
+                                  MEMTXATTRS_UNSPECIFIED, instr, sizeof(instr));
     if (res != MEMTX_OK) {
         error_setg(&error_fatal, "failed to write to ROM");
         goto cleanup;
     }
- 
+
 cleanup:
     address_space_destroy(&as);
 }
- 
+
 #define TYPE_RA4M1 "ra4m1"
 OBJECT_DECLARE_TYPE(RA4M1State, RA4M1Class, RA4M1)
 
@@ -87,24 +198,28 @@ static void ra4m1_init(Object *ob)
     RA4M1State *s = RA4M1(ob);
 
     object_initialize_child(ob, "armv7m", &s->armv7m, TYPE_ARMV7M);
+    object_initialize_child(ob, "regs", &s->regs, TYPE_RA4M1_REGS);
     s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
 }
 
-static void ra4m1_realize(DeviceState *dev, Error **errp)
-{ 
-    RA4M1State *s = RA4M1(dev);
+static void ra4m1_realize(DeviceState *ds, Error **errp)
+{
+    RA4M1State *s = RA4M1(ds);
     MemoryRegion *system_memory = get_system_memory();
-    DeviceState *armv7m;
+    DeviceState *armv7m, *dev;
+    SysBusDevice *busdev;
 
     if (!s->sysclk || !clock_has_source(s->sysclk)) {
         error_setg(errp, "sysclk clock must be wired up by the board code");
         return;
     }
 
-    memory_region_init_ram(&s->sram, NULL, "RA4M1.sram", RA4M1_SRAM_SIZE, &error_abort);
+    memory_region_init_ram(&s->sram, NULL, "RA4M1.sram", RA4M1_SRAM_SIZE,
+                           &error_abort);
     memory_region_add_subregion(system_memory, RA4M1_SRAM_BASE, &s->sram);
 
-    memory_region_init_rom(&s->flash, NULL, "RA4M1.flash", RA4M1_FLASH_SIZE, &error_abort);
+    memory_region_init_rom(&s->flash, NULL, "RA4M1.flash", RA4M1_FLASH_SIZE,
+                           &error_abort);
     memory_region_add_subregion(system_memory, RA4M1_FLASH_BASE, &s->flash);
 
     object_property_set_link(OBJECT(&s->armv7m), "memory",
@@ -114,6 +229,11 @@ static void ra4m1_realize(DeviceState *dev, Error **errp)
     qdev_prop_set_string(armv7m, "cpu-type", RA4M1_CPU_NAME);
     qdev_prop_set_uint32(armv7m, "num-irq", RA4M1_NUM_IRQ);
     sysbus_realize(SYS_BUS_DEVICE(&s->armv7m), &error_abort);
+
+    dev = DEVICE(&s->regs);
+    sysbus_realize(SYS_BUS_DEVICE(&s->regs), &error_abort);
+    busdev = SYS_BUS_DEVICE(dev);
+    sysbus_mmio_map(busdev, 0, RA4M1_REGS_OFF);
 }
 
 static void ra4m1_class_init(ObjectClass *oc, void *data)
@@ -149,7 +269,6 @@ typedef struct ArduinoUnoRev4MachineClass {
 #define TYPE_ARDUINO_UNO_REV4_MACHINE MACHINE_TYPE_NAME("arduino-uno-rev4")
 DECLARE_OBJ_CHECKERS(ArduinoUnoRev4MachineState, ArduinoUnoRev4MachineClass,
                      ARDUINO_UNO_REV4_MACHINE, TYPE_ARDUINO_UNO_REV4_MACHINE)
-
 
 static void arduino_uno_rev4_machine_init(MachineState *ms)
 {
