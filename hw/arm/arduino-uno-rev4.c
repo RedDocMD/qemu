@@ -174,9 +174,12 @@ static void init_rom(void)
         goto cleanup;
     }
 
+    // uint16_t instr[] = {
+    //     0xbf00, // loop: nop
+    //     0xe7fd, //       b loop
+    // };
     uint16_t instr[] = {
-        0xbf00, // loop: nop
-        0xe7fd, //       b loop
+        0x4801, 0x6801, 0xbf00, 0xe7fd, 0xe41f, 0x4001,
     };
 
     res = address_space_write_rom(&as, RA4M1_FLASH_BASE + sizeof(vt),
