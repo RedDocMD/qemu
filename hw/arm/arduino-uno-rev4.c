@@ -18,36 +18,38 @@
 #include <stdarg.h>
 #include <string.h>
 
-static void set_bit_from(uint32_t *dest, uint32_t src, int bit)
-{
-    *dest &= ~(1 << bit);
-    *dest |= (1 << bit) & src;
-}
+#define set_bit_from(dest, src, bit)     \
+    do {                                 \
+        *(dest) &= ~(1 << (bit));        \
+        *(dest) |= (1 << (bit)) & (src); \
+    } while (0);
 
-static void set_with_retain(uint32_t *old, uint32_t new, const char *retain)
-{
-    uint32_t val = new;
+#define set_with_retain(old, new, retain)             \
+    do {                                              \
+        uint64_t val = (new);                         \
+        int bit;                                      \
+        while ((sscanf(retain, "%d", &bit) != EOF)) { \
+            set_bit_from(&val, *(old), bit);          \
+        }                                             \
+        *(old) = val;                                 \
+    } while (0);
 
-    int bit;
-    while ((sscanf(retain, "%d", &bit) != EOF)) {
-        set_bit_from(&val, *old, bit);
-    }
-    *old = val;
-}
-
-__attribute__((unused)) static void set_with(uint32_t *old, uint32_t new,
-                                             const char *with)
-{
-    int bit;
-    while ((sscanf(with, "%d", &bit) != EOF)) {
-        set_bit_from(old, new, bit);
-    }
-}
-
+#define set_with(old, new, with)                    \
+    do {                                            \
+        int bit;                                    \
+        while ((sscanf(with, "%d", &bit) != EOF)) { \
+            set_bit_from((old), (new), bit);        \
+        }                                           \
+    } while (0);
 #define RA4M1_REGS_OFF 0x40010000
 
 #define VBTCR1_OFF 0xE41F
 #define VBTSR_OFF 0xE4B1
+#define PRCR_OFF 0xE3FE
+#define FCACHEE_OFF 0xC100
+#define SCKDIVCR_OFF 0xE010
+#define SCKSCR_OFF 0xE026
+#define MOMCR_OFF 0xE413
 
 #define TYPE_RA4M1_REGS "ra4m1-regs"
 OBJECT_DECLARE_SIMPLE_TYPE(RA4M1RegsState, RA4M1_REGS)
@@ -56,16 +58,36 @@ typedef struct RA4M1RegsState {
     SysBusDevice parent_obj;
     MemoryRegion mmio;
 
-    uint32_t vbtcr1;
-    uint32_t vbtsr;
+    uint8_t vbtcr1;
+    uint8_t vbtsr;
+    uint16_t prcr;
+    uint16_t fcachee;
+    uint32_t sckdivcr;
+    uint8_t sckscr;
+    uint8_t momcr;
 } RA4M1RegsState;
+
+static bool ra4m1_regs_battery_regs_write_allowed(const RA4M1RegsState *s)
+{
+    return (s->prcr & 0x2);
+}
+
+static bool ra4m1_regs_clock_regs_write_allowed(const RA4M1RegsState *s)
+{
+    return (s->prcr & 0x1);
+}
 
 static void ra4m1_regs_reset(DeviceState *dev)
 {
     RA4M1RegsState *s = RA4M1_REGS(dev);
 
-    s->vbtcr1 = 0x00000000;
-    s->vbtsr = 0x00000000;
+    s->vbtcr1 = 0x00;
+    s->vbtsr = 0x00;
+    s->prcr = 0x0000;
+    s->fcachee = 0x0000;
+    s->sckdivcr = 0x44044444;
+    s->sckscr = 0x01;
+    s->momcr = 0x00;
 }
 
 static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
@@ -77,6 +99,16 @@ static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
         return s->vbtcr1;
     case VBTSR_OFF:
         return s->vbtsr;
+    case PRCR_OFF:
+        return s->prcr;
+    case FCACHEE_OFF:
+        return s->fcachee;
+    case SCKDIVCR_OFF:
+        return s->sckdivcr;
+    case SCKSCR_OFF:
+        return s->sckscr;
+    case MOMCR_OFF:
+        return s->momcr;
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx "\n",
                       __func__, addr);
@@ -88,15 +120,57 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
                              unsigned int size)
 {
     RA4M1RegsState *s = opaque;
-    uint32_t val = val64;
-
     switch (addr) {
     case VBTCR1_OFF:
-        s->vbtcr1 = val;
+        if (ra4m1_regs_battery_regs_write_allowed(s)) {
+            s->vbtcr1 = (uint8_t)val64;
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR, "PRCR[1] = 0, can't modify VBTCR1");
+        }
         return;
     case VBTSR_OFF:
-        set_with_retain(&s->vbtsr, val, "4");
+        if (ra4m1_regs_battery_regs_write_allowed(s)) {
+            set_with_retain(&s->vbtsr, (uint8_t)val64, "4");
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR, "PRCR[1] = 0, can't modify VBTSR");
+        }
         return;
+    case PRCR_OFF:
+        if ((val64 & 0xFF00) != 0xA500) {
+            qemu_log_mask(LOG_GUEST_ERROR, "PRCR[15:8] must be A5");
+        } else {
+            set_with(&s->prcr, (uint16_t)val64, "0 1 3");
+        }
+        return;
+    case FCACHEE_OFF:
+        set_with(&s->fcachee, (uint16_t)val64, "0");
+        return;
+    case SCKDIVCR_OFF:
+        if (ra4m1_regs_clock_regs_write_allowed(s)) {
+            set_with_retain(&s->sckdivcr, (uint32_t)val64,
+                            "3 7 11 15 16 17 18 19 20 21 22 23 27 31");
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "PRCR[0] = 0, can't modify SCKDIVCR");
+        }
+        return;
+    case SCKSCR_OFF:
+        if (ra4m1_regs_clock_regs_write_allowed(s)) {
+            set_with(&s->sckscr, (uint8_t)val64, "0 1 2");
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR, "PRCR[0] = 0, can't modify SCKSCR");
+        }
+        return;
+    case MOMCR_OFF:
+        if (ra4m1_regs_clock_regs_write_allowed(s)) {
+            set_with(&s->momcr, (uint8_t)val64, "3 6");
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR, "PRCR[0] = 0, can't modify MOMCR");
+        }
+        return;
+    default:
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx "\n",
+                      __func__, addr);
     }
 }
 
@@ -121,8 +195,13 @@ static const VMStateDescription vmstate_ra4m1_regs = {
     .minimum_version_id = 1,
     .fields =
         (VMStateField[]){
-            VMSTATE_UINT32(vbtcr1, RA4M1RegsState),
-            VMSTATE_UINT32(vbtsr, RA4M1RegsState),
+            VMSTATE_UINT8(vbtcr1, RA4M1RegsState),
+            VMSTATE_UINT8(vbtsr, RA4M1RegsState),
+            VMSTATE_UINT16(prcr, RA4M1RegsState),
+            VMSTATE_UINT16(fcachee, RA4M1RegsState),
+            VMSTATE_UINT32(sckdivcr, RA4M1RegsState),
+            VMSTATE_UINT8(sckscr, RA4M1RegsState),
+            VMSTATE_UINT8(momcr, RA4M1RegsState),
             VMSTATE_END_OF_LIST(),
         }
 };
