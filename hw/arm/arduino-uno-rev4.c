@@ -16,6 +16,33 @@
 #include "hw/sysbus.h"
 #include "migration/vmstate.h"
 #include <stdarg.h>
+#include <string.h>
+
+static void set_bit_from(uint32_t *dest, uint32_t src, int bit)
+{
+    *dest &= ~(1 << bit);
+    *dest |= (1 << bit) & src;
+}
+
+static void set_with_retain(uint32_t *old, uint32_t new, const char *retain)
+{
+    uint32_t val = new;
+
+    int bit;
+    while ((sscanf(retain, "%d", &bit) != EOF)) {
+        set_bit_from(&val, *old, bit);
+    }
+    *old = val;
+}
+
+__attribute__((unused)) static void set_with(uint32_t *old, uint32_t new,
+                                             const char *with)
+{
+    int bit;
+    while ((sscanf(with, "%d", &bit) != EOF)) {
+        set_bit_from(old, new, bit);
+    }
+}
 
 #define RA4M1_REGS_OFF 0x40010000
 
@@ -68,8 +95,7 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
         s->vbtcr1 = val;
         return;
     case VBTSR_OFF:
-        // FIXME: Bit 4 must be read-only
-        s->vbtsr = val;
+        set_with_retain(&s->vbtsr, val, "4");
         return;
     }
 }
