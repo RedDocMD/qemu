@@ -50,6 +50,8 @@
 #define SCKDIVCR_OFF 0xE010
 #define SCKSCR_OFF 0xE026
 #define MOMCR_OFF 0xE413
+#define MOSCWTCR_OFF 0xE0A2
+#define SOSCCR_OFF 0xE480
 
 #define TYPE_RA4M1_REGS "ra4m1-regs"
 OBJECT_DECLARE_SIMPLE_TYPE(RA4M1RegsState, RA4M1_REGS)
@@ -65,6 +67,8 @@ typedef struct RA4M1RegsState {
     uint32_t sckdivcr;
     uint8_t sckscr;
     uint8_t momcr;
+    uint8_t moscwtcr;
+    uint8_t sosccr;
 } RA4M1RegsState;
 
 static bool ra4m1_regs_battery_regs_write_allowed(const RA4M1RegsState *s)
@@ -88,6 +92,8 @@ static void ra4m1_regs_reset(DeviceState *dev)
     s->sckdivcr = 0x44044444;
     s->sckscr = 0x01;
     s->momcr = 0x00;
+    s->moscwtcr = 0x05;
+    s->sosccr = 0x01;
 }
 
 static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
@@ -109,6 +115,10 @@ static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
         return s->sckscr;
     case MOMCR_OFF:
         return s->momcr;
+    case MOSCWTCR_OFF:
+        return s->moscwtcr;
+    case SOSCCR_OFF:
+        return s->sosccr;
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx "\n",
                       __func__, addr);
@@ -168,6 +178,21 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
             qemu_log_mask(LOG_GUEST_ERROR, "PRCR[0] = 0, can't modify MOMCR");
         }
         return;
+    case MOSCWTCR_OFF:
+        if (ra4m1_regs_clock_regs_write_allowed(s)) {
+            set_with(&s->moscwtcr, (uint8_t)val64, "0 1 2 3")
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "PRCR[0] = 0, can't modify MOSCWTCR");
+        }
+        return;
+    case SOSCCR_OFF:
+        if (ra4m1_regs_clock_regs_write_allowed(s)) {
+            set_with(&s->sosccr, (uint8_t)val64, "0");
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR, "PRCR[0] = 0, can't modify SOSCCR");
+        }
+        return;
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx "\n",
                       __func__, addr);
@@ -202,6 +227,8 @@ static const VMStateDescription vmstate_ra4m1_regs = {
             VMSTATE_UINT32(sckdivcr, RA4M1RegsState),
             VMSTATE_UINT8(sckscr, RA4M1RegsState),
             VMSTATE_UINT8(momcr, RA4M1RegsState),
+            VMSTATE_UINT8(moscwtcr, RA4M1RegsState),
+            VMSTATE_UINT8(sosccr, RA4M1RegsState),
             VMSTATE_END_OF_LIST(),
         }
 };
