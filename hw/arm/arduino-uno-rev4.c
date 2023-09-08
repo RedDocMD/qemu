@@ -52,6 +52,10 @@
 #define MOMCR_OFF 0xE413
 #define MOSCWTCR_OFF 0xE0A2
 #define SOSCCR_OFF 0xE480
+#define SOMCR_OFF 0xE481
+#define OPCCR_OFF 0xE0A0
+#define HOCOCR_OFF 0xE036
+#define OSCSF_OFF 0xE03C
 
 #define TYPE_RA4M1_REGS "ra4m1-regs"
 OBJECT_DECLARE_SIMPLE_TYPE(RA4M1RegsState, RA4M1_REGS)
@@ -69,6 +73,10 @@ typedef struct RA4M1RegsState {
     uint8_t momcr;
     uint8_t moscwtcr;
     uint8_t sosccr;
+    uint8_t somcr;
+    uint8_t opccr;
+    uint8_t hococr;
+    uint8_t oscsf;
 } RA4M1RegsState;
 
 static bool ra4m1_regs_battery_regs_write_allowed(const RA4M1RegsState *s)
@@ -94,6 +102,10 @@ static void ra4m1_regs_reset(DeviceState *dev)
     s->momcr = 0x00;
     s->moscwtcr = 0x05;
     s->sosccr = 0x01;
+    s->somcr = 0x00;
+    s->opccr = 0x02;
+    s->hococr = 0x00;
+    s->oscsf = 0x01;
 }
 
 static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
@@ -119,6 +131,14 @@ static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
         return s->moscwtcr;
     case SOSCCR_OFF:
         return s->sosccr;
+    case SOMCR_OFF:
+        return s->somcr;
+    case OPCCR_OFF:
+        return s->opccr;
+    case HOCOCR_OFF:
+        return s->hococr;
+    case OSCSF_OFF:
+        return s->oscsf;
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx "\n",
                       __func__, addr);
@@ -193,6 +213,30 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
             qemu_log_mask(LOG_GUEST_ERROR, "PRCR[0] = 0, can't modify SOSCCR");
         }
         return;
+    case SOMCR_OFF:
+        if (ra4m1_regs_clock_regs_write_allowed(s)) {
+            set_with(&s->somcr, (uint8_t)val64, "0 1");
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR, "PRCR[0] = 0, can't modify SOMCR");
+        }
+        return;
+    case OPCCR_OFF:
+        set_with(&s->opccr, (uint8_t)val64, "0 1 4");
+        return;
+    case HOCOCR_OFF:
+        if (ra4m1_regs_clock_regs_write_allowed(s)) {
+            set_with(&s->hococr, (uint8_t)val64, "0");
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR, "PRCR[0] = 0, can't modify HOCOCR");
+        }
+        return;
+    case OSCSF_OFF:
+        if (ra4m1_regs_clock_regs_write_allowed(s)) {
+            set_with(&s->oscsf, (uint8_t)val64, "0 3 5");
+        } else {
+            qemu_log_mask(LOG_GUEST_ERROR, "PRCR[0] = 0, can't modify OSCSF");
+        }
+        return;
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx "\n",
                       __func__, addr);
@@ -229,6 +273,10 @@ static const VMStateDescription vmstate_ra4m1_regs = {
             VMSTATE_UINT8(momcr, RA4M1RegsState),
             VMSTATE_UINT8(moscwtcr, RA4M1RegsState),
             VMSTATE_UINT8(sosccr, RA4M1RegsState),
+            VMSTATE_UINT8(somcr, RA4M1RegsState),
+            VMSTATE_UINT8(opccr, RA4M1RegsState),
+            VMSTATE_UINT8(hococr, RA4M1RegsState),
+            VMSTATE_UINT8(oscsf, RA4M1RegsState),
             VMSTATE_END_OF_LIST(),
         }
 };
