@@ -630,6 +630,33 @@ void armv7m_load_kernel(ARMCPU *cpu, const char *kernel_filename,
     qemu_register_reset(armv7m_reset, cpu);
 }
 
+void armv7m_load_bootloader(ARMCPU *cpu, const char *bootloader_filename)
+{
+    CPUState *cs = CPU(cpu);
+    AddressSpace *as;
+    int asidx;
+    hwaddr entry;
+    ssize_t cnt;
+
+    if (arm_feature(&cpu->env, ARM_FEATURE_EL3)) {
+        asidx = ARMASIdx_S;
+    } else {
+        asidx = ARMASIdx_NS;
+    }
+    as = cpu_get_address_space(cs, asidx);
+
+    if (bootloader_filename) {
+        cnt = load_targphys_hex_as(bootloader_filename, &entry, as);
+        if (cnt < 0) {
+            error_report("Could not load bootloader '%s'", bootloader_filename);
+            exit(1);
+        }
+    }
+
+    // FIXME: Remove
+    qemu_register_reset(armv7m_reset, cpu);
+}
+
 static Property bitband_properties[] = {
     DEFINE_PROP_UINT32("base", BitBandState, base, 0),
     DEFINE_PROP_LINK("source-memory", BitBandState, source_memory,

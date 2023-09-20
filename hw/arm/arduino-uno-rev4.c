@@ -16,7 +16,6 @@
 #include "hw/sysbus.h"
 #include "migration/vmstate.h"
 #include <stdarg.h>
-#include <string.h>
 
 #define set_bit_from(dest, src, bit)     \
     do {                                 \
@@ -308,6 +307,7 @@ typedef struct RA4M1State {
     Clock *sysclk;
     MemoryRegion sram;
     MemoryRegion flash;
+    MemoryRegion onchip_flash;
     RA4M1RegsState regs;
 } RA4M1State;
 
@@ -322,6 +322,8 @@ typedef struct RA4M1Class {
 #define RA4M1_SRAM_BASE 0x20000000
 #define RA4M1_FLASH_BASE 0
 #define RA4M1_FLASH_SIZE (256 << 10)
+#define RA4M1_ONCHIP_FLASH_BASE 0x407FB19C
+#define RA4M1_ONCHIP_FLASH_SIZE 4
 #define RA4M1_CPU_HZ (48 << 20)
 #define RA4M1_NUM_IRQ 32
 #define RA4M1_VT_SIZE (RA4M1_NUM_IRQ + 16)
@@ -331,13 +333,12 @@ static void init_rom(void)
 {
     MemoryRegion *sm;
     AddressSpace as;
-    uint32_t vt[RA4M1_VT_SIZE];
+    uint32_t vt[RA4M1_VT_SIZE] = { 0 };
     MemTxResult res;
 
     sm = get_system_memory();
     address_space_init(&as, sm, "system-memory");
 
-    memset(vt, 0, sizeof(vt));
     vt[0] = RA4M1_SRAM_BASE + DEFAULT_STACK_SIZE; // Initial sp
     vt[1] = RA4M1_FLASH_BASE +
             sizeof(vt); // Instruction offset to jump to after reset
@@ -404,6 +405,10 @@ static void ra4m1_realize(DeviceState *ds, Error **errp)
     memory_region_init_rom(&s->flash, NULL, "RA4M1.flash", RA4M1_FLASH_SIZE,
                            &error_abort);
     memory_region_add_subregion(system_memory, RA4M1_FLASH_BASE, &s->flash);
+    memory_region_init_rom(&s->onchip_flash, NULL, "RA4M1.onchip_flash",
+                           RA4M1_ONCHIP_FLASH_SIZE, &error_abort);
+    memory_region_add_subregion(system_memory, RA4M1_ONCHIP_FLASH_BASE,
+                                &s->onchip_flash);
 
     object_property_set_link(OBJECT(&s->armv7m), "memory",
                              OBJECT(system_memory), &error_abort);
@@ -475,10 +480,12 @@ static void arduino_uno_rev4_machine_init(MachineState *ms)
     qdev_connect_clock_in(DEVICE(&s->soc), "sysclk", sysclk);
     qdev_realize(DEVICE(&s->soc), NULL, &error_fatal);
 
-    init_rom();
-    // To force a proper reset
-    // armv7m_load_kernel(ARM_CPU(first_cpu), NULL, 0, 0);
-    armv7m_load_kernel(ARM_CPU(first_cpu), ms->kernel_filename, 0, 0);
+    // Default ROM state
+    if (!ms->bootloader_filename && !ms->kernel_filename) {
+        init_rom();
+    }
+
+    armv7m_load_bootloader(ARM_CPU(first_cpu), ms->bootloader_filename);
 }
 
 static void arduino_uno_rev4_machine_class_init(ObjectClass *oc, void *data)

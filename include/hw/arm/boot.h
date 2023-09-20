@@ -36,6 +36,8 @@ typedef enum {
 void armv7m_load_kernel(ARMCPU *cpu, const char *kernel_filename,
                         hwaddr mem_base, int mem_size);
 
+void armv7m_load_bootloader(ARMCPU *cpu, const char *bootloader_filename);
+
 /* arm_boot.c */
 struct arm_boot_info {
     uint64_t ram_size;

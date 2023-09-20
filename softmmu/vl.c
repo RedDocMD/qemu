@@ -2878,6 +2878,9 @@ void qemu_init(int argc, char **argv)
             case QEMU_OPTION_kernel:
                 qdict_put_str(machine_opts_dict, "kernel", optarg);
                 break;
+            case QEMU_OPTION_bootloader:
+                qdict_put_str(machine_opts_dict, "bootloader", optarg);
+                break;
             case QEMU_OPTION_initrd:
                 qdict_put_str(machine_opts_dict, "initrd", optarg);
                 break;

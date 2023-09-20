@@ -3966,6 +3966,13 @@ SRST
     or in multiboot format.
 ERST
 
+DEF("bootloader", HAS_ARG, QEMU_OPTION_bootloader, \
+   "-bootloader hexfile use 'hexfile' as the bootloader\n", QEMU_ARCH_ARM)
+SRST
+``-bootloder hexfile``
+    Use hexfile as the code for the bootloader.
+ERST
+
 DEF("append", HAS_ARG, QEMU_OPTION_append, \
     "-append cmdline use 'cmdline' as kernel command line\n", QEMU_ARCH_ALL)
 SRST

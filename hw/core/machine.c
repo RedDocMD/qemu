@@ -307,6 +307,21 @@ static void machine_set_kernel(Object *obj, const char *value, Error **errp)
     ms->kernel_filename = g_strdup(value);
 }
 
+static char *machine_get_bootloader(Object *obj, Error **errp)
+{
+    MachineState *ms = MACHINE(obj);
+
+    return g_strdup(ms->bootloader_filename);
+}
+
+static void machine_set_bootloader(Object *obj, const char *value, Error **errp)
+{
+    MachineState *ms = MACHINE(obj);
+
+    g_free(ms->bootloader_filename);
+    ms->bootloader_filename = g_strdup(value);
+}
+
 static char *machine_get_initrd(Object *obj, Error **errp)
 {
     MachineState *ms = MACHINE(obj);
@@ -944,6 +959,11 @@ static void machine_class_init(ObjectClass *oc, void *data)
      */
     mc->numa_mem_align_shift = 23;
 
+    object_class_property_add_str(oc, "bootloader", machine_get_bootloader,
+                                  machine_set_bootloader);
+    object_class_property_set_description(oc, "bootloader",
+                                          "Bootloader hex file");
+
     object_class_property_add_str(oc, "kernel",
         machine_get_kernel, machine_set_kernel);
     object_class_property_set_description(oc, "kernel",
@@ -1129,6 +1149,7 @@ static void machine_finalize(Object *obj)
     g_free(ms->kernel_filename);
     g_free(ms->initrd_filename);
     g_free(ms->kernel_cmdline);
+    g_free(ms->bootloader_filename);
     g_free(ms->dtb);
     g_free(ms->dumpdtb);
     g_free(ms->dt_compatible);
