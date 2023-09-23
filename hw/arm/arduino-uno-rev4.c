@@ -23,38 +23,44 @@
         *(dest) |= (1 << (bit)) & (src); \
     } while (0);
 
-#define set_with_retain(old, new, retain)             \
-    do {                                              \
-        uint64_t val = (new);                         \
-        int bit;                                      \
-        while ((sscanf(retain, "%d", &bit) != EOF)) { \
-            set_bit_from(&val, *(old), bit);          \
-        }                                             \
-        *(old) = val;                                 \
+#define set_with_retain(old, new, retain)                            \
+    do {                                                             \
+        uint64_t val = (new);                                        \
+        int bit;                                                     \
+        int off = 0, read = 0;                                       \
+        while ((sscanf(retain + off, "%d%n", &bit, &read) != EOF)) { \
+            off += read;                                             \
+            set_bit_from(&val, *(old), bit);                         \
+        }                                                            \
+        *(old) = val;                                                \
     } while (0);
 
-#define set_with(old, new, with)                    \
-    do {                                            \
-        int bit;                                    \
-        while ((sscanf(with, "%d", &bit) != EOF)) { \
-            set_bit_from((old), (new), bit);        \
-        }                                           \
+#define set_with(old, new, with)                                   \
+    do {                                                           \
+        int bit;                                                   \
+        int off = 0, read = 0;                                     \
+        while ((sscanf(with + off, "%d%n", &bit, &read) != EOF)) { \
+            off += read;                                           \
+            set_bit_from((old), (new), bit);                       \
+        }                                                          \
     } while (0);
-#define RA4M1_REGS_OFF 0x40010000
 
-#define VBTCR1_OFF 0xE41F
-#define VBTSR_OFF 0xE4B1
-#define PRCR_OFF 0xE3FE
-#define FCACHEE_OFF 0xC100
-#define SCKDIVCR_OFF 0xE010
-#define SCKSCR_OFF 0xE026
-#define MOMCR_OFF 0xE413
-#define MOSCWTCR_OFF 0xE0A2
-#define SOSCCR_OFF 0xE480
-#define SOMCR_OFF 0xE481
-#define OPCCR_OFF 0xE0A0
-#define HOCOCR_OFF 0xE036
-#define OSCSF_OFF 0xE03C
+#define RA4M1_REGS_OFF 0x40000000
+#define RA4M1_REGS_SIZE 0x100000
+
+#define VBTCR1_OFF 0x1E41F
+#define VBTSR_OFF 0x1E4B1
+#define PRCR_OFF 0x1E3FE
+#define FCACHEE_OFF 0x1C100
+#define SCKDIVCR_OFF 0x1E010
+#define SCKSCR_OFF 0x1E026
+#define MOMCR_OFF 0x1E413
+#define MOSCWTCR_OFF 0x1E0A2
+#define SOSCCR_OFF 0x1E480
+#define SOMCR_OFF 0x1E481
+#define OPCCR_OFF 0x1E0A0
+#define HOCOCR_OFF 0x1E036
+#define OSCSF_OFF 0x1E03C
 
 #define TYPE_RA4M1_REGS "ra4m1-regs"
 OBJECT_DECLARE_SIMPLE_TYPE(RA4M1RegsState, RA4M1_REGS)
@@ -93,7 +99,7 @@ static void ra4m1_regs_reset(DeviceState *dev)
     RA4M1RegsState *s = RA4M1_REGS(dev);
 
     s->vbtcr1 = 0x00;
-    s->vbtsr = 0x00;
+    s->vbtsr = 0x10;
     s->prcr = 0x0000;
     s->fcachee = 0x0000;
     s->sckdivcr = 0x44044444;
@@ -110,6 +116,7 @@ static void ra4m1_regs_reset(DeviceState *dev)
 static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
 {
     RA4M1RegsState *s = opaque;
+    // printf("Read Addr = 0x%lx\n", addr);
 
     switch (addr) {
     case VBTCR1_OFF:
@@ -149,6 +156,8 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
                              unsigned int size)
 {
     RA4M1RegsState *s = opaque;
+    // printf("Write Addr = 0x%lx\n", addr);
+
     switch (addr) {
     case VBTCR1_OFF:
         if (ra4m1_regs_battery_regs_write_allowed(s)) {
@@ -253,7 +262,7 @@ static void ra4m1_regs_init(Object *ob)
     RA4M1RegsState *s = RA4M1_REGS(ob);
 
     memory_region_init_io(&s->mmio, ob, &ra4m1_regs_ops, s, TYPE_RA4M1_REGS,
-                          0x10000);
+                          RA4M1_REGS_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(ob), &s->mmio);
 }
 

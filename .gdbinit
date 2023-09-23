@@ -6,3 +6,4 @@
 
 # Load QEMU-specific sub-commands and settings
 source scripts/qemu-gdb.py
+set arm fallback-mode thumb
