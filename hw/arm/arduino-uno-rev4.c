@@ -48,19 +48,22 @@
 #define RA4M1_REGS_OFF 0x40000000
 #define RA4M1_REGS_SIZE 0x100000
 
-#define VBTCR1_OFF 0x1E41F
-#define VBTSR_OFF 0x1E4B1
-#define PRCR_OFF 0x1E3FE
-#define FCACHEE_OFF 0x1C100
-#define SCKDIVCR_OFF 0x1E010
-#define SCKSCR_OFF 0x1E026
-#define MOMCR_OFF 0x1E413
-#define MOSCWTCR_OFF 0x1E0A2
-#define SOSCCR_OFF 0x1E480
-#define SOMCR_OFF 0x1E481
-#define OPCCR_OFF 0x1E0A0
-#define HOCOCR_OFF 0x1E036
-#define OSCSF_OFF 0x1E03C
+// clang-format off
+#define FCACHEE_OFF      0x1C100
+#define SCKDIVCR_OFF     0x1E020
+#define SCKSCR_OFF       0x1E026
+#define MEMWAIT_OFF      0x1E031
+#define HOCOCR_OFF       0x1E036
+#define OSCSF_OFF        0x1E03C
+#define OPCCR_OFF        0x1E0A0
+#define MOSCWTCR_OFF     0x1E0A2
+#define PRCR_OFF         0x1E3FE
+#define MOMCR_OFF        0x1E413
+#define VBTCR1_OFF       0x1E41F
+#define SOSCCR_OFF       0x1E480
+#define SOMCR_OFF        0x1E481
+#define VBTSR_OFF        0x1E4B1
+// clang-format on
 
 #define TYPE_RA4M1_REGS "ra4m1-regs"
 OBJECT_DECLARE_SIMPLE_TYPE(RA4M1RegsState, RA4M1_REGS)
@@ -82,6 +85,7 @@ typedef struct RA4M1RegsState {
     uint8_t opccr;
     uint8_t hococr;
     uint8_t oscsf;
+    uint8_t memwait;
 } RA4M1RegsState;
 
 static bool ra4m1_regs_battery_regs_write_allowed(const RA4M1RegsState *s)
@@ -111,6 +115,7 @@ static void ra4m1_regs_reset(DeviceState *dev)
     s->opccr = 0x02;
     s->hococr = 0x00;
     s->oscsf = 0x01;
+    s->memwait = 0x00;
 }
 
 static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
@@ -145,8 +150,10 @@ static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
         return s->hococr;
     case OSCSF_OFF:
         return s->oscsf;
+    case MEMWAIT_OFF:
+        return s->memwait;
     default:
-        qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx "\n",
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx " for reg\n",
                       __func__, addr);
         return 0;
     }
@@ -245,8 +252,11 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
             qemu_log_mask(LOG_GUEST_ERROR, "PRCR[0] = 0, can't modify OSCSF");
         }
         return;
+    case MEMWAIT_OFF:
+        set_with(&s->memwait, (uint8_t)val64, "0");
+        return;
     default:
-        qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx "\n",
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx " for regs\n",
                       __func__, addr);
     }
 }
@@ -310,6 +320,79 @@ static void ra4m1_regs_register_types(void)
 
 type_init(ra4m1_regs_register_types);
 
+#define RA4M1_FLASH_REGS_OFF 0x407E0000
+#define RA4M1_FLASH_REGS_SIZE 0x10000
+
+#define TYPE_RA4M1_FLASH_REGS "ra4m1-flash-regs"
+OBJECT_DECLARE_SIMPLE_TYPE(RA4M1FlashRegsState, RA4M1_FLASH_REGS)
+
+typedef struct RA4M1FlashRegsState {
+    SysBusDevice parent_obj;
+    MemoryRegion mmio;
+} RA4M1FlashRegsState;
+
+static void ra4m1_flash_regs_reset(DeviceState *dev)
+{
+    // RA4M1RegsState *s = RA4M1_FLASH_REGS(dev);
+}
+
+static uint64_t ra4m1_flash_regs_read(void *opaque, hwaddr addr, unsigned int size)
+{
+    // RA4M1RegsState *s = RA4M1_FLASH_REGS(dev);
+
+    switch (addr) {
+    default:
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx " for flash reg\n",
+                      __func__, addr);
+        return 0;
+    }
+}
+
+static void ra4m1_flash_regs_write(void *opaque, hwaddr addr, uint64_t val64, unsigned int size)
+{
+    // RA4M1RegsState *s = RA4M1_FLASH_REGS(dev);
+
+    switch (addr) {
+    default:
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset 0x%" HWADDR_PRIx " for flash reg\n",
+                      __func__, addr);
+    }
+}
+
+static const MemoryRegionOps ra4m1_flash_regs_ops = {
+    .read = ra4m1_flash_regs_read,
+    .write = ra4m1_flash_regs_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+};
+
+static void ra4m1_flash_regs_init(Object *ob)
+{
+    RA4M1FlashRegsState *s = RA4M1_FLASH_REGS(ob);
+
+    memory_region_init_io(&s->mmio, ob, &ra4m1_flash_regs_ops, s, TYPE_RA4M1_FLASH_REGS, RA4M1_FLASH_REGS_SIZE);
+    sysbus_init_mmio(SYS_BUS_DEVICE(ob), &s->mmio);
+}
+
+static void ra4m1_flash_regs_class_init(ObjectClass *class, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(class);
+    dc->reset = ra4m1_flash_regs_reset;
+}
+
+static void ra4m1_flash_regs_register_types(void)
+{
+    static const TypeInfo ra4m1_flash_regs_info = {
+        .name = TYPE_RA4M1_FLASH_REGS,
+        .parent = TYPE_SYS_BUS_DEVICE,
+        .instance_size = sizeof(RA4M1FlashRegsState),
+        .instance_init = ra4m1_flash_regs_init,
+        .class_init = ra4m1_flash_regs_class_init,
+    };
+    type_register_static(&ra4m1_flash_regs_info);
+}
+
+type_init(ra4m1_flash_regs_register_types);
+
 typedef struct RA4M1State {
     DeviceState parent_state;
     ARMv7MState armv7m;
@@ -318,6 +401,7 @@ typedef struct RA4M1State {
     MemoryRegion flash;
     MemoryRegion onchip_flash;
     RA4M1RegsState regs;
+    RA4M1FlashRegsState flash_regs;
 } RA4M1State;
 
 typedef struct RA4M1Class {
@@ -392,6 +476,7 @@ static void ra4m1_init(Object *ob)
 
     object_initialize_child(ob, "armv7m", &s->armv7m, TYPE_ARMV7M);
     object_initialize_child(ob, "regs", &s->regs, TYPE_RA4M1_REGS);
+    object_initialize_child(ob, "flash-regs", &s->flash_regs, TYPE_RA4M1_FLASH_REGS);
     s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
 }
 
@@ -431,6 +516,11 @@ static void ra4m1_realize(DeviceState *ds, Error **errp)
     sysbus_realize(SYS_BUS_DEVICE(&s->regs), &error_abort);
     busdev = SYS_BUS_DEVICE(dev);
     sysbus_mmio_map(busdev, 0, RA4M1_REGS_OFF);
+
+    dev = DEVICE(&s->flash_regs);
+    sysbus_realize(SYS_BUS_DEVICE(&s->flash_regs), &error_abort);
+    busdev = SYS_BUS_DEVICE(dev);
+    sysbus_mmio_map(busdev, 0, RA4M1_FLASH_REGS_OFF);
 }
 
 static void ra4m1_class_init(ObjectClass *oc, void *data)
