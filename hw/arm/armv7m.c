@@ -652,8 +652,40 @@ void armv7m_load_bootloader(ARMCPU *cpu, const char *bootloader_filename)
             exit(1);
         }
     }
+}
 
-    // FIXME: Remove
+void armv7m_load_hex_kernel(ARMCPU *cpu, const char *kernel_filename)
+{
+    CPUState *cs = CPU(cpu);
+    AddressSpace *as;
+    int asidx;
+    hwaddr entry;
+    ssize_t cnt;
+    MemTxResult res;
+    uint32_t actual_entry;
+
+    if (arm_feature(&cpu->env, ARM_FEATURE_EL3)) {
+        asidx = ARMASIdx_S;
+    } else {
+        asidx = ARMASIdx_NS;
+    }
+    as = cpu_get_address_space(cs, asidx);
+
+    if (kernel_filename) {
+        cnt = load_targphys_hex_as(kernel_filename, &entry, as);
+        if (cnt < 0) {
+            error_report("Could not load bootloader '%s'", kernel_filename);
+            exit(1);
+        }
+        actual_entry = (uint32_t)entry | 1;
+        res = address_space_write_rom(as, 4, MEMTXATTRS_UNSPECIFIED,
+                                      &actual_entry, sizeof(actual_entry));
+        if (res != MEMTX_OK) {
+            error_report("failed to write to ROM");
+            exit(1);
+        }
+    }
+
     qemu_register_reset(armv7m_reset, cpu);
 }
 

@@ -38,6 +38,8 @@ void armv7m_load_kernel(ARMCPU *cpu, const char *kernel_filename,
 
 void armv7m_load_bootloader(ARMCPU *cpu, const char *bootloader_filename);
 
+void armv7m_load_hex_kernel(ARMCPU *cpu, const char *kernel_filename);
+
 /* arm_boot.c */
 struct arm_boot_info {
     uint64_t ram_size;
