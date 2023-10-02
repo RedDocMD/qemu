@@ -674,10 +674,12 @@ void armv7m_load_hex_kernel(ARMCPU *cpu, const char *kernel_filename)
     if (kernel_filename) {
         cnt = load_targphys_hex_as(kernel_filename, &entry, as);
         if (cnt < 0) {
-            error_report("Could not load bootloader '%s'", kernel_filename);
+            error_report("Could not load kernel '%s'", kernel_filename);
             exit(1);
         }
         actual_entry = (uint32_t)entry | 1;
+        printf("Actual entry = 0x%04x\n", actual_entry);
+        fflush(stdout);
         res = address_space_write_rom(as, 4, MEMTXATTRS_UNSPECIFIED,
                                       &actual_entry, sizeof(actual_entry));
         if (res != MEMTX_OK) {
