@@ -63,6 +63,7 @@
 #define SOSCCR_OFF       0x1E480
 #define SOMCR_OFF        0x1E481
 #define VBTSR_OFF        0x1E4B1
+#define USBFS_SYSCFG     0x90000
 // clang-format on
 
 #define TYPE_RA4M1_REGS "ra4m1-regs"
@@ -86,6 +87,7 @@ typedef struct RA4M1RegsState {
     uint8_t hococr;
     uint8_t oscsf;
     uint8_t memwait;
+    uint16_t usbfs_syscfg;
 } RA4M1RegsState;
 
 static bool ra4m1_regs_battery_regs_write_allowed(const RA4M1RegsState *s)
@@ -116,6 +118,7 @@ static void ra4m1_regs_reset(DeviceState *dev)
     s->hococr = 0x00;
     s->oscsf = 0x01;
     s->memwait = 0x00;
+    s->usbfs_syscfg = 0x0000;
 }
 
 static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
@@ -152,6 +155,8 @@ static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
         return s->oscsf;
     case MEMWAIT_OFF:
         return s->memwait;
+    case USBFS_SYSCFG:
+        return s->usbfs_syscfg;
     default:
         qemu_log_mask(LOG_GUEST_ERROR,
                       "%s: Bad offset 0x%" HWADDR_PRIx " for reg\n", __func__,
@@ -255,6 +260,9 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
         return;
     case MEMWAIT_OFF:
         set_with(&s->memwait, (uint8_t)val64, "0");
+        return;
+    case USBFS_SYSCFG:
+        set_with(&s->usbfs_syscfg, (uint16_t)val64, "0 3 4 5 6 8 10");
         return;
     default:
         qemu_log_mask(LOG_GUEST_ERROR,
