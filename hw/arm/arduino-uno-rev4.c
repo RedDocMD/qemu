@@ -45,6 +45,8 @@
         }                                                          \
     } while (0);
 
+#define FIELD_SIZEOF(t, f) (sizeof(((t *)0)->f))
+
 #define RA4M1_REGS_OFF 0x40000000
 #define RA4M1_REGS_SIZE 0x100000
 
@@ -64,10 +66,40 @@
 #define SOMCR_OFF        0x1E481
 #define VBTSR_OFF        0x1E4B1
 #define USBFS_SYSCFG     0x90000
+
+#define PCNTR_BASE       0x40000
+#define PCNTR_CNT        10
+#define PCNTR_SHIFT      0x20
 // clang-format on
 
 #define TYPE_RA4M1_REGS "ra4m1-regs"
 OBJECT_DECLARE_SIMPLE_TYPE(RA4M1RegsState, RA4M1_REGS)
+
+struct __attribute__((packed)) pcntr {
+    union {
+        uint32_t dw;
+        struct {
+            uint16_t pdr;
+            uint16_t podr;
+        } hw;
+    } pcntr1;
+
+    union {
+        uint32_t dw;
+        struct {
+            uint16_t pidr;
+            uint16_t eidr;
+        } hw;
+    } pcntr2;
+
+    union {
+        uint32_t dw;
+        struct {
+            uint16_t posr;
+            uint16_t porr;
+        } hw;
+    } pcntr3;
+};
 
 typedef struct RA4M1RegsState {
     SysBusDevice parent_obj;
@@ -88,6 +120,7 @@ typedef struct RA4M1RegsState {
     uint8_t oscsf;
     uint8_t memwait;
     uint16_t usbfs_syscfg;
+    struct pcntr pcntr[PCNTR_CNT];
 } RA4M1RegsState;
 
 static bool ra4m1_regs_battery_regs_write_allowed(const RA4M1RegsState *s)
@@ -119,12 +152,79 @@ static void ra4m1_regs_reset(DeviceState *dev)
     s->oscsf = 0x01;
     s->memwait = 0x00;
     s->usbfs_syscfg = 0x0000;
+    bzero(s->pcntr, sizeof(s->pcntr));
+}
+
+static bool is_pcntr_offset(hwaddr off)
+{
+    if (off < PCNTR_BASE)
+        return false;
+    return (off - PCNTR_BASE) < FIELD_SIZEOF(RA4M1RegsState, pcntr);
+}
+
+static void *pcntr_field(RA4M1RegsState *s, hwaddr addr)
+{
+    hwaddr off = addr - PCNTR_BASE;
+    hwaddr idx_off = off & ~0xF;
+    size_t idx = idx_off / PCNTR_SHIFT;
+    struct pcntr *pcntr = s->pcntr + idx;
+
+    hwaddr field_off = off & 0xF;
+    hwaddr offsets[] = { 0, 2, 4, 6, 8, 12 };
+
+    char *ptr = (char *)pcntr;
+    for (int i = 0; i < ARRAY_SIZE(offsets); ++i) {
+        if (field_off == offsets[i])
+            return ptr + field_off;
+    }
+    return NULL;
+}
+
+static uint64_t read_pcntr(RA4M1RegsState *s, hwaddr addr, unsigned int size)
+{
+    void *ptr;
+
+    if (!(ptr = pcntr_field(s, addr))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "%s: Bad read offset 0x%" HWADDR_PRIx " for PCNTR\n",
+                      __func__, addr);
+        return 0;
+    }
+    if (size == 2) {
+        return *((uint16_t *)ptr);
+    } else if (size == 4) {
+        return *((uint32_t *)ptr);
+    } else {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "%s: Invalid read size %d at offset 0x%" HWADDR_PRIx
+                      " for PCNTR\n",
+                      __func__, size, addr);
+        return 0;
+    }
+}
+
+static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
+                        unsigned int size)
+{
+    void *ptr;
+
+    if (!(ptr = pcntr_field(s, addr))) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "%s: Bad read offset 0x%" HWADDR_PRIx " for PCNTR\n",
+                      __func__, addr);
+        return;
+    }
+    memcpy(ptr, &val64, size);
 }
 
 static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
 {
     RA4M1RegsState *s = opaque;
     // printf("Read Addr = 0x%lx\n", addr);
+
+    if (is_pcntr_offset(addr)) {
+        return read_pcntr(s, addr, size);
+    }
 
     switch (addr) {
     case VBTCR1_OFF:
@@ -170,6 +270,11 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
 {
     RA4M1RegsState *s = opaque;
     // printf("Write Addr = 0x%lx\n", addr);
+
+    if (is_pcntr_offset(addr)) {
+        write_pcntr(s, addr, val64, size);
+        return;
+    }
 
     switch (addr) {
     case VBTCR1_OFF:
