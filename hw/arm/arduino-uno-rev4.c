@@ -2,6 +2,7 @@
 
 #include "hw/boards.h"
 #include "qom/object.h"
+#include "sysemu/sysemu.h"
 #include "target/arm/cpu.h"
 #include "qemu/cutils.h"
 #include "qemu/error-report.h"
@@ -15,6 +16,7 @@
 #include "hw/arm/boot.h"
 #include "hw/sysbus.h"
 #include "migration/vmstate.h"
+#include "hw/char/renesas_sci.h"
 #include <stdarg.h>
 
 #define set_bit_from(dest, src, bit)     \
@@ -524,6 +526,7 @@ typedef struct RA4M1State {
     MemoryRegion onchip_flash;
     RA4M1RegsState regs;
     RA4M1FlashRegsState flash_regs;
+    RSCIState sci;
 } RA4M1State;
 
 typedef struct RA4M1Class {
@@ -533,6 +536,7 @@ typedef struct RA4M1Class {
 #define RA4M1_CPU_NAME ARM_CPU_TYPE_NAME("cortex-m4")
 #define RA4M1_CORE_COUNT 1
 #define RA4M1_PERIPHERAL_BASE 0x40000000
+#define RA4M1_SCI_BASE 0x40070000
 #define RA4M1_SRAM_SIZE (32 << 10)
 #define RA4M1_SRAM_BASE 0x20000000
 #define RA4M1_FLASH_BASE 0
@@ -600,6 +604,7 @@ static void ra4m1_init(Object *ob)
     object_initialize_child(ob, "regs", &s->regs, TYPE_RA4M1_REGS);
     object_initialize_child(ob, "flash-regs", &s->flash_regs,
                             TYPE_RA4M1_FLASH_REGS);
+    object_initialize_child(ob, "sci", &s->sci, TYPE_RENESAS_SCI);
     s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
 }
 
@@ -644,6 +649,15 @@ static void ra4m1_realize(DeviceState *ds, Error **errp)
     sysbus_realize(SYS_BUS_DEVICE(&s->flash_regs), &error_abort);
     busdev = SYS_BUS_DEVICE(dev);
     sysbus_mmio_map(busdev, 0, RA4M1_FLASH_REGS_OFF);
+
+    dev = DEVICE(&s->sci);
+    busdev = SYS_BUS_DEVICE(dev);
+    qdev_prop_set_chr(dev, "chardev", serial_hd(1));
+    qdev_prop_set_uint64(dev, "input-freq", RA4M1_CPU_HZ);
+    sysbus_realize(busdev, &error_abort);
+
+    // FIXME: Connect IRQ's
+    sysbus_mmio_map(busdev, 0, RA4M1_SCI_BASE);
 }
 
 static void ra4m1_class_init(ObjectClass *oc, void *data)
