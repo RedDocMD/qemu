@@ -23,27 +23,29 @@
         *(dest) |= (1 << (bit)) & (src); \
     } while (0);
 
-#define set_with_retain(old, new, retain)                            \
-    do {                                                             \
-        uint64_t val = (new);                                        \
-        int bit;                                                     \
-        int off = 0, read = 0;                                       \
-        while ((sscanf(retain + off, "%d%n", &bit, &read) != EOF)) { \
-            off += read;                                             \
-            set_bit_from(&val, *(old), bit);                         \
-        }                                                            \
-        *(old) = val;                                                \
-    } while (0);
+#define set_with_retain(old, new, retain)                                      \
+  do {                                                                         \
+    uint64_t val = (new);                                                      \
+    int bit;                                                                   \
+    int off = 0, read = 0;                                                     \
+    while ((sscanf((char *)((uint8_t *)retain + off), "%d%n", &bit, &read) !=  \
+            EOF)) {                                                            \
+      off += read;                                                             \
+      set_bit_from(&val, *(old), bit);                                         \
+    }                                                                          \
+    *(old) = val;                                                              \
+  } while (0);
 
-#define set_with(old, new, with)                                   \
-    do {                                                           \
-        int bit;                                                   \
-        int off = 0, read = 0;                                     \
-        while ((sscanf(with + off, "%d%n", &bit, &read) != EOF)) { \
-            off += read;                                           \
-            set_bit_from((old), (new), bit);                       \
-        }                                                          \
-    } while (0);
+#define set_with(old, new, with)                                               \
+  do {                                                                         \
+    int bit;                                                                   \
+    int off = 0, read = 0;                                                     \
+    while ((sscanf((char *)((uint8_t *)with + off), "%d%n", &bit, &read) !=    \
+            EOF)) {                                                            \
+      off += read;                                                             \
+      set_bit_from((old), (new), bit);                                         \
+    }                                                                          \
+  } while (0);
 
 #define FIELD_SIZEOF(t, f) (sizeof(((t *)0)->f))
 
