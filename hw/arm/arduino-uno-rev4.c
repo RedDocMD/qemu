@@ -657,7 +657,7 @@ static void ra4m1_realize(DeviceState *ds, Error **errp)
     sysbus_realize(busdev, &error_abort);
 
     // FIXME: Connect IRQ's
-    sysbus_mmio_map(busdev, 0, RA4M1_SCI_BASE);
+    sysbus_mmio_map_overlap(busdev, 0, RA4M1_SCI_BASE, 1);
 }
 
 static void ra4m1_class_init(ObjectClass *oc, void *data)
