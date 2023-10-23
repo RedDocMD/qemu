@@ -558,6 +558,9 @@ static void ra4m1_flash_regs_register_types(void)
 
 type_init(ra4m1_flash_regs_register_types);
 
+#define RA4M1_SCI_BASE 0x40070000
+#define RA4M1_SCI_OFF 0x20
+
 typedef struct RA4M1State {
     DeviceState parent_state;
     ARMv7MState armv7m;
@@ -567,7 +570,7 @@ typedef struct RA4M1State {
     MemoryRegion onchip_flash;
     RA4M1RegsState regs;
     RA4M1FlashRegsState flash_regs;
-    RSCIState sci;
+    RSCIState sci[10];
 } RA4M1State;
 
 typedef struct RA4M1Class {
@@ -645,7 +648,13 @@ static void ra4m1_init(Object *ob)
     object_initialize_child(ob, "regs", &s->regs, TYPE_RA4M1_REGS);
     object_initialize_child(ob, "flash-regs", &s->flash_regs,
                             TYPE_RA4M1_FLASH_REGS);
-    object_initialize_child(ob, "sci", &s->sci, TYPE_RENESAS_SCI);
+    int sci_idx[] = { 0, 1, 2, 9 };
+    for (int i = 0; i < ARRAY_SIZE(sci_idx); i++) {
+        int idx = sci_idx[i];
+        char name[6];
+        snprintf(name, sizeof(name), "sci-%d", idx);
+        object_initialize_child(ob, name, &s->sci[idx], TYPE_RENESAS_SCI);
+    }
     s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
 }
 
@@ -692,13 +701,24 @@ static void ra4m1_realize(DeviceState *ds, Error **errp)
     busdev = SYS_BUS_DEVICE(dev);
     sysbus_mmio_map(busdev, 0, RA4M1_FLASH_REGS_OFF);
 
-    busdev = SYS_BUS_DEVICE(&s->sci);
-    qdev_prop_set_chr(DEVICE(busdev), "chardev", serial_hd(1));
-    qdev_prop_set_uint64(DEVICE(busdev), "input-freq", RA4M1_CPU_HZ);
-    sysbus_realize(busdev, &error_abort);
+    int serial_mapping[] = {
+        [0] = 2,
+        [1] = 0,
+        [2] = 1,
+        [9] = 3,
+    };
+    int sci_idx[] = { 0, 1, 2, 9 };
+    for (int i = 0; i < ARRAY_SIZE(sci_idx); i++) {
+        int idx = sci_idx[i];
+        busdev = SYS_BUS_DEVICE(&s->sci[idx]);
+        qdev_prop_set_chr(DEVICE(busdev), "chardev",
+                          serial_hd(serial_mapping[idx]));
+        qdev_prop_set_uint64(DEVICE(busdev), "input-freq", RA4M1_CPU_HZ);
+        sysbus_realize(busdev, &error_abort);
 
-    // FIXME: Connect IRQ's
-    sysbus_mmio_map(busdev, 0, RA4M1_SCI2_BASE);
+        // FIXME: Connect IRQ's
+        sysbus_mmio_map(busdev, 0, RA4M1_SCI_BASE + idx * RA4M1_SCI_OFF);
+    }
 }
 
 static void ra4m1_class_init(ObjectClass *oc, void *data)

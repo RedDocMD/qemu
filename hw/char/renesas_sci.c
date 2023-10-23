@@ -201,8 +201,9 @@ static void sci_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
     case A_SEMR: /* SEMR */
         sci->semr = val; break;
     default:
-        qemu_log_mask(LOG_UNIMP, "renesas_sci: Register 0x%" HWADDR_PRIX " "
-                                 "not implemented\n",
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "renesas_sci: Register 0x%" HWADDR_PRIX " "
+                      "not implemented\n",
                       offset);
     }
 }
@@ -231,8 +232,10 @@ static uint64_t sci_read(void *opaque, hwaddr offset, unsigned size)
     case A_SEMR:
         return sci->semr;
     default:
-        qemu_log_mask(LOG_UNIMP, "renesas_sci: Register 0x%" HWADDR_PRIX
-                      " not implemented.\n", offset);
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "renesas_sci: Register 0x%" HWADDR_PRIX
+                      " not implemented.\n",
+                      offset);
     }
     return UINT64_MAX;
 }
@@ -288,8 +291,8 @@ static void rsci_init(Object *obj)
     RSCIState *sci = RSCI(obj);
     int i;
 
-    memory_region_init_io(&sci->memory, OBJECT(sci), &sci_ops,
-                          sci, "renesas-sci", 0x8);
+    memory_region_init_io(&sci->memory, OBJECT(sci), &sci_ops, sci,
+                          "renesas-sci", 0x20);
     sysbus_init_mmio(d, &sci->memory);
 
     for (i = 0; i < SCI_NR_IRQ; i++) {
