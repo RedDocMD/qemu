@@ -51,8 +51,11 @@
 
 #define FIELD_SIZEOF(t, f) (sizeof(((t *)0)->f))
 
-#define RA4M1_REGS_OFF 0x40000000
-#define RA4M1_REGS_SIZE 0x100000
+#define RA4M1_REGS_LO_OFF 0x40000000
+#define RA4M1_REGS_LO_SIZE 0x70000
+#define RA4M1_REGS_HI_OFF 0x40080000
+#define RA4M1_REGS_HI_SIZE 0x80000
+#define RA4M1_REGS_HI_SHIFT 0x80000
 
 // clang-format off
 #define FCACHEE_OFF      0x1C100
@@ -107,7 +110,8 @@ struct __attribute__((packed)) pcntr {
 
 typedef struct RA4M1RegsState {
     SysBusDevice parent_obj;
-    MemoryRegion mmio;
+    MemoryRegion mmio_lo;
+    MemoryRegion mmio_hi;
 
     uint8_t vbtcr1;
     uint8_t vbtsr;
@@ -221,7 +225,7 @@ static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     memcpy(ptr, &val64, size);
 }
 
-static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
+static uint64_t ra4m1_regs_read_lo(void *opaque, hwaddr addr, unsigned int size)
 {
     RA4M1RegsState *s = opaque;
     // printf("Read Addr = 0x%lx\n", addr);
@@ -259,18 +263,16 @@ static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
         return s->oscsf;
     case MEMWAIT_OFF:
         return s->memwait;
-    case USBFS_SYSCFG:
-        return s->usbfs_syscfg;
     default:
         qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: Bad offset 0x%" HWADDR_PRIx " for reg\n", __func__,
-                      addr);
+                      "%s: Bad offset 0x%" HWADDR_PRIx " for regs lo\n",
+                      __func__, addr);
         return 0;
     }
 }
 
-static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
-                             unsigned int size)
+static void ra4m1_regs_write_lo(void *opaque, hwaddr addr, uint64_t val64,
+                                unsigned int size)
 {
     RA4M1RegsState *s = opaque;
     // printf("Write Addr = 0x%lx\n", addr);
@@ -370,19 +372,55 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
     case MEMWAIT_OFF:
         set_with(&s->memwait, (uint8_t)val64, "0");
         return;
+    default:
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "%s: Bad offset 0x%" HWADDR_PRIx " for regs lo\n",
+                      __func__, addr);
+    }
+}
+
+static uint64_t ra4m1_regs_read_hi(void *opaque, hwaddr addr, unsigned int size)
+{
+    RA4M1RegsState *s = opaque;
+    addr += RA4M1_REGS_HI_SHIFT;
+
+    switch (addr) {
+    case USBFS_SYSCFG:
+        return s->usbfs_syscfg;
+    default:
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "%s: Bad offset 0x%" HWADDR_PRIx " for regs hi\n",
+                      __func__, addr);
+        return 0;
+    }
+}
+
+static void ra4m1_regs_write_hi(void *opaque, hwaddr addr, uint64_t val64,
+                                unsigned int size)
+{
+    RA4M1RegsState *s = opaque;
+    addr += RA4M1_REGS_HI_SHIFT;
+
+    switch (addr) {
     case USBFS_SYSCFG:
         set_with(&s->usbfs_syscfg, (uint16_t)val64, "0 3 4 5 6 8 10");
         return;
     default:
         qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: Bad offset 0x%" HWADDR_PRIx " for regs\n", __func__,
-                      addr);
+                      "%s: Bad offset 0x%" HWADDR_PRIx " for regs hi\n",
+                      __func__, addr);
     }
 }
 
-static const MemoryRegionOps ra4m1_regs_ops = {
-    .read = ra4m1_regs_read,
-    .write = ra4m1_regs_write,
+static const MemoryRegionOps ra4m1_regs_ops_lo = {
+    .read = ra4m1_regs_read_lo,
+    .write = ra4m1_regs_write_lo,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+};
+
+static const MemoryRegionOps ra4m1_regs_ops_hi = {
+    .read = ra4m1_regs_read_hi,
+    .write = ra4m1_regs_write_hi,
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
@@ -390,9 +428,12 @@ static void ra4m1_regs_init(Object *ob)
 {
     RA4M1RegsState *s = RA4M1_REGS(ob);
 
-    memory_region_init_io(&s->mmio, ob, &ra4m1_regs_ops, s, TYPE_RA4M1_REGS,
-                          RA4M1_REGS_SIZE);
-    sysbus_init_mmio(SYS_BUS_DEVICE(ob), &s->mmio);
+    memory_region_init_io(&s->mmio_lo, ob, &ra4m1_regs_ops_lo, s,
+                          TYPE_RA4M1_REGS "-lo", RA4M1_REGS_LO_SIZE);
+    sysbus_init_mmio(SYS_BUS_DEVICE(ob), &s->mmio_lo);
+    memory_region_init_io(&s->mmio_hi, ob, &ra4m1_regs_ops_hi, s,
+                          TYPE_RA4M1_REGS "-hi", RA4M1_REGS_HI_SIZE);
+    sysbus_init_mmio(SYS_BUS_DEVICE(ob), &s->mmio_hi);
 }
 
 static const VMStateDescription vmstate_ra4m1_regs = {
@@ -536,7 +577,7 @@ typedef struct RA4M1Class {
 #define RA4M1_CPU_NAME ARM_CPU_TYPE_NAME("cortex-m4")
 #define RA4M1_CORE_COUNT 1
 #define RA4M1_PERIPHERAL_BASE 0x40000000
-#define RA4M1_SCI_BASE 0x40070000
+#define RA4M1_SCI2_BASE 0x40070040
 #define RA4M1_SRAM_SIZE (32 << 10)
 #define RA4M1_SRAM_BASE 0x20000000
 #define RA4M1_FLASH_BASE 0
@@ -643,7 +684,8 @@ static void ra4m1_realize(DeviceState *ds, Error **errp)
     dev = DEVICE(&s->regs);
     sysbus_realize(SYS_BUS_DEVICE(&s->regs), &error_abort);
     busdev = SYS_BUS_DEVICE(dev);
-    sysbus_mmio_map(busdev, 0, RA4M1_REGS_OFF);
+    sysbus_mmio_map(busdev, 0, RA4M1_REGS_LO_OFF);
+    sysbus_mmio_map(busdev, 1, RA4M1_REGS_HI_OFF);
 
     dev = DEVICE(&s->flash_regs);
     sysbus_realize(SYS_BUS_DEVICE(&s->flash_regs), &error_abort);
@@ -656,7 +698,7 @@ static void ra4m1_realize(DeviceState *ds, Error **errp)
     sysbus_realize(busdev, &error_abort);
 
     // FIXME: Connect IRQ's
-    sysbus_mmio_map_overlap(busdev, 0, RA4M1_SCI_BASE, 1);
+    sysbus_mmio_map(busdev, 0, RA4M1_SCI2_BASE);
 }
 
 static void ra4m1_class_init(ObjectClass *oc, void *data)
