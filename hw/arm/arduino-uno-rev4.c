@@ -650,10 +650,9 @@ static void ra4m1_realize(DeviceState *ds, Error **errp)
     busdev = SYS_BUS_DEVICE(dev);
     sysbus_mmio_map(busdev, 0, RA4M1_FLASH_REGS_OFF);
 
-    dev = DEVICE(&s->sci);
-    busdev = SYS_BUS_DEVICE(dev);
-    qdev_prop_set_chr(dev, "chardev", serial_hd(1));
-    qdev_prop_set_uint64(dev, "input-freq", RA4M1_CPU_HZ);
+    busdev = SYS_BUS_DEVICE(&s->sci);
+    qdev_prop_set_chr(DEVICE(busdev), "chardev", serial_hd(1));
+    qdev_prop_set_uint64(DEVICE(busdev), "input-freq", RA4M1_CPU_HZ);
     sysbus_realize(busdev, &error_abort);
 
     // FIXME: Connect IRQ's
