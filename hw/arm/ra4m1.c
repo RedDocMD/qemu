@@ -46,7 +46,6 @@ static void ra4m1_realize(DeviceState *ds, Error **errp)
     sysbus_realize(SYS_BUS_DEVICE(&s->armv7m), &error_abort);
 
     sysbus_realize(SYS_BUS_DEVICE(&s->peri), &error_abort);
-    sysbus_mmio_map(SYS_BUS_DEVICE(&s->peri), 0, RA4M1_PERIPHERAL_BASE);
 }
 
 static void ra4m1_class_init(ObjectClass *oc, void *data)

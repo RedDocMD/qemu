@@ -7,3 +7,5 @@
 ./qemu-system-arm -M arduino-uno-rev4 -nographic -bootloader ~/work/stuff/bl_minima.hex -kernel ~/work/stuff/serial_write.hex -serial null -serial /dev/ttyS0
 
 arm-none-eabi-objdump --disassembler-options=force-thumb -d /tmp/dfu_minima.o | nvim
+
+./qemu-system-arm -M raspi2b -nographic -monitor stdio -serial null -s

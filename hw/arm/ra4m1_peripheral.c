@@ -17,8 +17,6 @@ static void ra4m1_peripheral_init(Object *ob)
         snprintf(name, sizeof(name), "sci-%d", idx);
         object_initialize_child(ob, name, &s->sci[idx], TYPE_RENESAS_SCI);
     }
-    memory_region_init(&s->peri_mr, ob, "peripheral-mr", RA4M1_PERIPHERAL_SIZE);
-    sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->peri_mr);
 }
 
 static void ra4m1_peripheral_realize(DeviceState *ds, Error **errp)
@@ -26,17 +24,11 @@ static void ra4m1_peripheral_realize(DeviceState *ds, Error **errp)
     RA4M1PeripheralState *s = RA4M1_PERIPHERAL(ds);
 
     sysbus_realize(SYS_BUS_DEVICE(&s->regs), &error_abort);
-    memory_region_add_subregion(&s->peri_mr, RA4M1_REGS_LO_OFF,
-                                sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->regs),
-                                                       0));
-    memory_region_add_subregion(&s->peri_mr, RA4M1_REGS_HI_OFF,
-                                sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->regs),
-                                                       1));
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->regs), 0, RA4M1_REGS_LO_OFF);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->regs), 1, RA4M1_REGS_HI_OFF);
 
     sysbus_realize(SYS_BUS_DEVICE(&s->flash_regs), &error_abort);
-    memory_region_add_subregion(
-        &s->peri_mr, RA4M1_FLASH_REGS_OFF,
-        sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->flash_regs), 0));
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->flash_regs), 0, RA4M1_FLASH_REGS_OFF);
 
     int serial_mapping[] = {
         [0] = 2,
@@ -53,9 +45,8 @@ static void ra4m1_peripheral_realize(DeviceState *ds, Error **errp)
         sysbus_realize(SYS_BUS_DEVICE(&s->sci[idx]), &error_abort);
 
         // FIXME: Connect IRQ's
-        memory_region_add_subregion(
-            &s->peri_mr, RA4M1_SCI_BASE + idx * RA4M1_SCI_OFF,
-            sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->sci[idx]), 0));
+        sysbus_mmio_map(SYS_BUS_DEVICE(&s->sci[idx]), 0,
+                        RA4M1_SCI_BASE + idx * RA4M1_SCI_OFF);
     }
 }
 

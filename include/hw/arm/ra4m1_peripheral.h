@@ -18,7 +18,6 @@ OBJECT_DECLARE_SIMPLE_TYPE(RA4M1PeripheralState, RA4M1_PERIPHERAL)
 typedef struct RA4M1PeripheralState {
     SysBusDevice parent_obj;
 
-    MemoryRegion peri_mr;
     RA4M1RegsState regs;
     RA4M1FlashRegsState flash_regs;
     RSCIState sci[10];
