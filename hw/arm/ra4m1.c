@@ -10,16 +10,7 @@ static void ra4m1_init(Object *ob)
     RA4M1State *s = RA4M1(ob);
 
     object_initialize_child(ob, "armv7m", &s->armv7m, TYPE_ARMV7M);
-    object_initialize_child(ob, "regs", &s->regs, TYPE_RA4M1_REGS);
-    object_initialize_child(ob, "flash-regs", &s->flash_regs,
-                            TYPE_RA4M1_FLASH_REGS);
-    int sci_idx[] = { 0, 1, 2, 9 };
-    for (int i = 0; i < ARRAY_SIZE(sci_idx); i++) {
-        int idx = sci_idx[i];
-        char name[6];
-        snprintf(name, sizeof(name), "sci-%d", idx);
-        object_initialize_child(ob, name, &s->sci[idx], TYPE_RENESAS_SCI);
-    }
+    object_initialize_child(ob, "peripheral", &s->peri, TYPE_RA4M1_PERIPHERAL);
     s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
 }
 
@@ -27,8 +18,7 @@ static void ra4m1_realize(DeviceState *ds, Error **errp)
 {
     RA4M1State *s = RA4M1(ds);
     MemoryRegion *system_memory = get_system_memory();
-    DeviceState *armv7m, *dev;
-    SysBusDevice *busdev;
+    DeviceState *armv7m;
 
     if (!s->sysclk || !clock_has_source(s->sysclk)) {
         error_setg(errp, "sysclk clock must be wired up by the board code");
@@ -55,35 +45,8 @@ static void ra4m1_realize(DeviceState *ds, Error **errp)
     qdev_prop_set_uint32(armv7m, "num-irq", RA4M1_NUM_IRQ);
     sysbus_realize(SYS_BUS_DEVICE(&s->armv7m), &error_abort);
 
-    dev = DEVICE(&s->regs);
-    sysbus_realize(SYS_BUS_DEVICE(&s->regs), &error_abort);
-    busdev = SYS_BUS_DEVICE(dev);
-    sysbus_mmio_map(busdev, 0, RA4M1_REGS_LO_OFF);
-    sysbus_mmio_map(busdev, 1, RA4M1_REGS_HI_OFF);
-
-    dev = DEVICE(&s->flash_regs);
-    sysbus_realize(SYS_BUS_DEVICE(&s->flash_regs), &error_abort);
-    busdev = SYS_BUS_DEVICE(dev);
-    sysbus_mmio_map(busdev, 0, RA4M1_FLASH_REGS_OFF);
-
-    int serial_mapping[] = {
-        [0] = 2,
-        [1] = 0,
-        [2] = 1,
-        [9] = 3,
-    };
-    int sci_idx[] = { 0, 1, 2, 9 };
-    for (int i = 0; i < ARRAY_SIZE(sci_idx); i++) {
-        int idx = sci_idx[i];
-        busdev = SYS_BUS_DEVICE(&s->sci[idx]);
-        qdev_prop_set_chr(DEVICE(busdev), "chardev",
-                          serial_hd(serial_mapping[idx]));
-        qdev_prop_set_uint64(DEVICE(busdev), "input-freq", RA4M1_CPU_HZ);
-        sysbus_realize(busdev, &error_abort);
-
-        // FIXME: Connect IRQ's
-        sysbus_mmio_map(busdev, 0, RA4M1_SCI_BASE + idx * RA4M1_SCI_OFF);
-    }
+    sysbus_realize(SYS_BUS_DEVICE(&s->peri), &error_abort);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->peri), 0, RA4M1_PERIPHERAL_BASE);
 }
 
 static void ra4m1_class_init(ObjectClass *oc, void *data)
@@ -99,7 +62,6 @@ static void ra4m1_register_types(void)
         .parent = TYPE_DEVICE,
         .instance_size = sizeof(RA4M1State),
         .instance_init = ra4m1_init,
-        .class_size = sizeof(RA4M1Class),
         .class_init = ra4m1_class_init,
     };
     type_register_static(&ra4m1_type_info);
