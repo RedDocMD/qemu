@@ -30,6 +30,7 @@ system_ss.add(when: 'CONFIG_SLAVIO', if_true: files('slavio_intctl.c'))
 system_ss.add(when: 'CONFIG_XILINX', if_true: files('xilinx_intc.c'))
 system_ss.add(when: 'CONFIG_XLNX_ZYNQMP', if_true: files('xlnx-zynqmp-ipi.c'))
 system_ss.add(when: 'CONFIG_XLNX_ZYNQMP_PMU', if_true: files('xlnx-pmu-iomod-intc.c'))
+system_ss.add(when: 'CONFIG_ARDUINO_UNO_R4', if_true: files('ra4m1_icu.c'))
 
 if config_all_devices.has_key('CONFIG_APIC') or \
    config_all_devices.has_key('CONFIG_I8259') or \
