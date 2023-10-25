@@ -23,6 +23,7 @@ static void ra4m1_peripheral_init(Object *ob)
 static void ra4m1_peripheral_realize(DeviceState *ds, Error **errp)
 {
     RA4M1PeripheralState *s = RA4M1_PERIPHERAL(ds);
+    Object *cpu;
 
     sysbus_realize(SYS_BUS_DEVICE(&s->regs), &error_abort);
     for (int i = 0; i < RA4M1_REG_REGION_CNT; i++) {
@@ -51,6 +52,9 @@ static void ra4m1_peripheral_realize(DeviceState *ds, Error **errp)
                         RA4M1_SCI_BASE + idx * RA4M1_SCI_OFF);
     }
 
+    cpu = object_property_get_link(OBJECT(s), "cpu", &error_abort);
+    object_property_add_const_link(OBJECT(&s->icu), "sci", OBJECT(s->sci));
+    object_property_add_const_link(OBJECT(&s->icu), "cpu", cpu);
     sysbus_realize(SYS_BUS_DEVICE(&s->icu), &error_abort);
     sysbus_mmio_map(SYS_BUS_DEVICE(&s->icu), 0, RA4M1_ICU_BASE);
 }

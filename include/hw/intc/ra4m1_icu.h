@@ -14,6 +14,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(RA4M1IcuState, RA4M1_ICU)
 typedef struct RA4M1IcuState {
     SysBusDevice parent_obj;
     MemoryRegion mmio;
+
+    uint32_t ielsr[32];
 } RA4M1IcuState;
 
 #endif

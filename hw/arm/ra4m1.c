@@ -45,6 +45,7 @@ static void ra4m1_realize(DeviceState *ds, Error **errp)
     qdev_prop_set_uint32(armv7m, "num-irq", RA4M1_NUM_IRQ);
     sysbus_realize(SYS_BUS_DEVICE(&s->armv7m), &error_abort);
 
+    object_property_add_const_link(OBJECT(&s->peri), "cpu", OBJECT(&s->armv7m));
     sysbus_realize(SYS_BUS_DEVICE(&s->peri), &error_abort);
 }
 
