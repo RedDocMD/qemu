@@ -8,19 +8,13 @@
 #define TYPE_RA4M1_REGS "ra4m1-regs"
 OBJECT_DECLARE_SIMPLE_TYPE(RA4M1RegsState, RA4M1_REGS)
 
-#define RA4M1_REGS_LO_OFF 0x40000000
-#define RA4M1_REGS_LO_SIZE 0x70000
-#define RA4M1_REGS_HI_OFF 0x40080000
-#define RA4M1_REGS_HI_SIZE 0x80000
-#define RA4M1_REGS_HI_SHIFT 0x80000
-
 struct __region {
     hwaddr off;
     hwaddr size;
     hwaddr shift;
 };
 
-#define RA4M1_REG_REGION_CNT 2
+#define RA4M1_REG_REGION_CNT 3
 extern struct __region regions[RA4M1_REG_REGION_CNT];
 
 #define PCNTR_CNT 10

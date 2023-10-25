@@ -17,6 +17,7 @@ static void ra4m1_peripheral_init(Object *ob)
         snprintf(name, sizeof(name), "sci-%d", idx);
         object_initialize_child(ob, name, &s->sci[idx], TYPE_RENESAS_SCI);
     }
+    object_initialize_child(ob, "icu", &s->icu, TYPE_RA4M1_ICU);
 }
 
 static void ra4m1_peripheral_realize(DeviceState *ds, Error **errp)
@@ -24,8 +25,9 @@ static void ra4m1_peripheral_realize(DeviceState *ds, Error **errp)
     RA4M1PeripheralState *s = RA4M1_PERIPHERAL(ds);
 
     sysbus_realize(SYS_BUS_DEVICE(&s->regs), &error_abort);
-    sysbus_mmio_map(SYS_BUS_DEVICE(&s->regs), 0, RA4M1_REGS_LO_OFF);
-    sysbus_mmio_map(SYS_BUS_DEVICE(&s->regs), 1, RA4M1_REGS_HI_OFF);
+    for (int i = 0; i < RA4M1_REG_REGION_CNT; i++) {
+        sysbus_mmio_map(SYS_BUS_DEVICE(&s->regs), i, regions[i].off);
+    }
 
     sysbus_realize(SYS_BUS_DEVICE(&s->flash_regs), &error_abort);
     sysbus_mmio_map(SYS_BUS_DEVICE(&s->flash_regs), 0, RA4M1_FLASH_REGS_OFF);
@@ -48,6 +50,9 @@ static void ra4m1_peripheral_realize(DeviceState *ds, Error **errp)
         sysbus_mmio_map(SYS_BUS_DEVICE(&s->sci[idx]), 0,
                         RA4M1_SCI_BASE + idx * RA4M1_SCI_OFF);
     }
+
+    sysbus_realize(SYS_BUS_DEVICE(&s->icu), &error_abort);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->icu), 0, RA4M1_ICU_BASE);
 }
 
 static void ra4m1_peripheral_class_init(ObjectClass *oc, void *data)

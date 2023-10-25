@@ -5,6 +5,7 @@
 #include "hw/arm/armv7m.h"
 #include "hw/arm/ra4m1_regs.h"
 #include "hw/char/renesas_sci.h"
+#include "hw/intc/ra4m1_icu.h"
 
 #define TYPE_RA4M1_PERIPHERAL "ra4m1-peripheral"
 OBJECT_DECLARE_SIMPLE_TYPE(RA4M1PeripheralState, RA4M1_PERIPHERAL)
@@ -21,6 +22,7 @@ typedef struct RA4M1PeripheralState {
     RA4M1RegsState regs;
     RA4M1FlashRegsState flash_regs;
     RSCIState sci[10];
+    RA4M1IcuState icu;
 } RA4M1PeripheralState;
 
 #endif

@@ -326,7 +326,8 @@ static const MemoryRegionOps ra4m1_regs_ops = {
 };
 
 struct __region regions[RA4M1_REG_REGION_CNT] = {
-    { .off = 0x40000000, .size = 0x70000, .shift = 0 },
+    { .off = 0x40000000, .size = 0x6000, .shift = 0 },
+    { .off = 0x40007000, .size = 0x69000, .shift = 0x7000 },
     { .off = 0x40080000, .size = 0x80000, .shift = 0x80000 },
 };
 
