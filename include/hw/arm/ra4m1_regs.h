@@ -14,6 +14,15 @@ OBJECT_DECLARE_SIMPLE_TYPE(RA4M1RegsState, RA4M1_REGS)
 #define RA4M1_REGS_HI_SIZE 0x80000
 #define RA4M1_REGS_HI_SHIFT 0x80000
 
+struct __region {
+    hwaddr off;
+    hwaddr size;
+    hwaddr shift;
+};
+
+#define RA4M1_REG_REGION_CNT 2
+extern struct __region regions[RA4M1_REG_REGION_CNT];
+
 #define PCNTR_CNT 10
 
 struct __attribute__((packed)) pcntr {
@@ -44,8 +53,7 @@ struct __attribute__((packed)) pcntr {
 
 typedef struct RA4M1RegsState {
     SysBusDevice parent_obj;
-    MemoryRegion mmio_lo;
-    MemoryRegion mmio_hi;
+    MemoryRegion mmio[RA4M1_REG_REGION_CNT];
 
     uint8_t vbtcr1;
     uint8_t vbtsr;

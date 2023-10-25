@@ -149,9 +149,17 @@ static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     memcpy(ptr, &val64, size);
 }
 
-static uint64_t ra4m1_regs_read_lo(void *opaque, hwaddr addr, unsigned int size)
+struct region_idx {
+    RA4M1RegsState *state;
+    int idx;
+};
+
+static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
 {
-    RA4M1RegsState *s = opaque;
+    struct region_idx *reg = opaque;
+    RA4M1RegsState *s = reg->state;
+
+    addr += regions[reg->idx].shift;
     // printf("Read Addr = 0x%lx\n", addr);
 
     if (is_pcntr_offset(addr)) {
@@ -187,6 +195,8 @@ static uint64_t ra4m1_regs_read_lo(void *opaque, hwaddr addr, unsigned int size)
         return s->oscsf;
     case MEMWAIT_OFF:
         return s->memwait;
+    case USBFS_SYSCFG:
+        return s->usbfs_syscfg;
     default:
         qemu_log_mask(LOG_GUEST_ERROR,
                       "%s: Bad offset 0x%" HWADDR_PRIx " for regs lo\n",
@@ -195,10 +205,13 @@ static uint64_t ra4m1_regs_read_lo(void *opaque, hwaddr addr, unsigned int size)
     }
 }
 
-static void ra4m1_regs_write_lo(void *opaque, hwaddr addr, uint64_t val64,
-                                unsigned int size)
+static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
+                             unsigned int size)
 {
-    RA4M1RegsState *s = opaque;
+    struct region_idx *reg = opaque;
+    RA4M1RegsState *s = reg->state;
+
+    addr += regions[reg->idx].shift;
     // printf("Write Addr = 0x%lx\n", addr);
 
     if (is_pcntr_offset(addr)) {
@@ -296,6 +309,9 @@ static void ra4m1_regs_write_lo(void *opaque, hwaddr addr, uint64_t val64,
     case MEMWAIT_OFF:
         set_with(&s->memwait, (uint8_t)val64, "0");
         return;
+    case USBFS_SYSCFG:
+        set_with(&s->usbfs_syscfg, (uint16_t)val64, "0 3 4 5 6 8 10");
+        return;
     default:
         qemu_log_mask(LOG_GUEST_ERROR,
                       "%s: Bad offset 0x%" HWADDR_PRIx " for regs lo\n",
@@ -303,61 +319,31 @@ static void ra4m1_regs_write_lo(void *opaque, hwaddr addr, uint64_t val64,
     }
 }
 
-static uint64_t ra4m1_regs_read_hi(void *opaque, hwaddr addr, unsigned int size)
-{
-    RA4M1RegsState *s = opaque;
-    addr += RA4M1_REGS_HI_SHIFT;
-
-    switch (addr) {
-    case USBFS_SYSCFG:
-        return s->usbfs_syscfg;
-    default:
-        qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: Bad offset 0x%" HWADDR_PRIx " for regs hi\n",
-                      __func__, addr);
-        return 0;
-    }
-}
-
-static void ra4m1_regs_write_hi(void *opaque, hwaddr addr, uint64_t val64,
-                                unsigned int size)
-{
-    RA4M1RegsState *s = opaque;
-    addr += RA4M1_REGS_HI_SHIFT;
-
-    switch (addr) {
-    case USBFS_SYSCFG:
-        set_with(&s->usbfs_syscfg, (uint16_t)val64, "0 3 4 5 6 8 10");
-        return;
-    default:
-        qemu_log_mask(LOG_GUEST_ERROR,
-                      "%s: Bad offset 0x%" HWADDR_PRIx " for regs hi\n",
-                      __func__, addr);
-    }
-}
-
-static const MemoryRegionOps ra4m1_regs_ops_lo = {
-    .read = ra4m1_regs_read_lo,
-    .write = ra4m1_regs_write_lo,
+static const MemoryRegionOps ra4m1_regs_ops = {
+    .read = ra4m1_regs_read,
+    .write = ra4m1_regs_write,
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static const MemoryRegionOps ra4m1_regs_ops_hi = {
-    .read = ra4m1_regs_read_hi,
-    .write = ra4m1_regs_write_hi,
-    .endianness = DEVICE_NATIVE_ENDIAN,
+struct __region regions[RA4M1_REG_REGION_CNT] = {
+    { .off = 0x40000000, .size = 0x70000, .shift = 0 },
+    { .off = 0x40080000, .size = 0x80000, .shift = 0x80000 },
 };
 
 static void ra4m1_regs_init(Object *ob)
 {
     RA4M1RegsState *s = RA4M1_REGS(ob);
+    static struct region_idx indices[RA4M1_REG_REGION_CNT];
+    char name[20];
 
-    memory_region_init_io(&s->mmio_lo, ob, &ra4m1_regs_ops_lo, s,
-                          TYPE_RA4M1_REGS "-lo", RA4M1_REGS_LO_SIZE);
-    sysbus_init_mmio(SYS_BUS_DEVICE(ob), &s->mmio_lo);
-    memory_region_init_io(&s->mmio_hi, ob, &ra4m1_regs_ops_hi, s,
-                          TYPE_RA4M1_REGS "-hi", RA4M1_REGS_HI_SIZE);
-    sysbus_init_mmio(SYS_BUS_DEVICE(ob), &s->mmio_hi);
+    for (int i = 0; i < RA4M1_REG_REGION_CNT; i++) {
+        indices[i].state = s;
+        indices[i].idx = i;
+        snprintf(name, sizeof(name), "%s-%d", TYPE_RA4M1_REGS, i);
+        memory_region_init_io(&s->mmio[i], ob, &ra4m1_regs_ops, &indices[i],
+                              name, regions[i].size);
+        sysbus_init_mmio(SYS_BUS_DEVICE(ob), &s->mmio[i]);
+    }
 }
 
 static const VMStateDescription vmstate_ra4m1_regs = {
