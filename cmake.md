@@ -5,7 +5,9 @@
 ./qemu-system-arm -M arduino-uno-rev4 -nographic -d guest_errors
 ./qemu-system-arm -M arduino-uno-rev4 -nographic -d guest_errors -bootloader ~/work/stuff/dfu_minima.hex
 ./qemu-system-arm -M arduino-uno-rev4 -nographic -bootloader ~/work/stuff/bl_minima.hex -kernel ~/work/stuff/serial_write.hex -serial null -serial /dev/ttyS0
+./qemu-system-arm -M arduino-uno-rev4 -nographic -bootloader ~/work/stuff/dfu_minima.hex -kernel ~/work/stuff/serial_read.hex -serial null -serial unix:/tmp/serial.socket,server
 
 arm-none-eabi-objdump --disassembler-options=force-thumb -d /tmp/dfu_minima.o | nvim
+minicom -D unix:/tmp/serial.socket
 
 ./qemu-system-arm -M raspi2b -nographic -monitor stdio -serial null -s
