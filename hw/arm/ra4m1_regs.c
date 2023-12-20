@@ -94,7 +94,12 @@ static bool is_pcntr_offset(hwaddr off)
     return (off - PCNTR_BASE) < FIELD_SIZEOF(RA4M1RegsState, pcntr);
 }
 
-static void *pcntr_field(RA4M1RegsState *s, hwaddr addr)
+struct pcntr_field {
+    void *ptr;
+    hwaddr off;
+};
+
+static struct pcntr_field pcntr_field(RA4M1RegsState *s, hwaddr addr)
 {
     hwaddr off = addr - PCNTR_BASE;
     hwaddr idx_off = off & ~0xF;
@@ -107,25 +112,26 @@ static void *pcntr_field(RA4M1RegsState *s, hwaddr addr)
     char *ptr = (char *)pcntr;
     for (int i = 0; i < ARRAY_SIZE(offsets); ++i) {
         if (field_off == offsets[i])
-            return ptr + field_off;
+            return (struct pcntr_field){ .ptr = ptr + field_off,
+                                         .off = field_off };
     }
-    return NULL;
+    return (struct pcntr_field){ .ptr = NULL };
 }
 
 static uint64_t read_pcntr(RA4M1RegsState *s, hwaddr addr, unsigned int size)
 {
-    void *ptr;
+    struct pcntr_field field = pcntr_field(s, addr);
 
-    if (!(ptr = pcntr_field(s, addr))) {
+    if (!field.ptr) {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "%s: Bad read offset 0x%" HWADDR_PRIx " for PCNTR\n",
                       __func__, addr);
         return 0;
     }
     if (size == 2) {
-        return *((uint16_t *)ptr);
+        return *((uint16_t *)field.ptr);
     } else if (size == 4) {
-        return *((uint32_t *)ptr);
+        return *((uint32_t *)field.ptr);
     } else {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "%s: Invalid read size %d at offset 0x%" HWADDR_PRIx
@@ -138,15 +144,15 @@ static uint64_t read_pcntr(RA4M1RegsState *s, hwaddr addr, unsigned int size)
 static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
                         unsigned int size)
 {
-    void *ptr;
+    struct pcntr_field field = pcntr_field(s, addr);
 
-    if (!(ptr = pcntr_field(s, addr))) {
+    if (!field.ptr) {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "%s: Bad read offset 0x%" HWADDR_PRIx " for PCNTR\n",
                       __func__, addr);
         return;
     }
-    memcpy(ptr, &val64, size);
+    memcpy(field.ptr, &val64, size);
 }
 
 struct region_idx {
