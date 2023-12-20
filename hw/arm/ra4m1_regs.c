@@ -1,4 +1,5 @@
 #include "hw/arm/ra4m1_regs.h"
+#include "exec/hwaddr.h"
 #include "qemu/log.h"
 #include "migration/vmstate.h"
 
@@ -97,6 +98,7 @@ static bool is_pcntr_offset(hwaddr off)
 struct pcntr_field {
     void *ptr;
     hwaddr off;
+    size_t idx;
 };
 
 static struct pcntr_field pcntr_field(RA4M1RegsState *s, hwaddr addr)
@@ -107,13 +109,14 @@ static struct pcntr_field pcntr_field(RA4M1RegsState *s, hwaddr addr)
     struct pcntr *pcntr = s->pcntr + idx;
 
     hwaddr field_off = off & 0xF;
-    hwaddr offsets[] = { 0, 2, 4, 6, 8, 12 };
+    hwaddr offsets[] = { 0, 2, 4, 6, 8, 10 };
 
     char *ptr = (char *)pcntr;
     for (int i = 0; i < ARRAY_SIZE(offsets); ++i) {
         if (field_off == offsets[i])
             return (struct pcntr_field){ .ptr = ptr + field_off,
-                                         .off = field_off };
+                                         .off = field_off,
+                                         .idx = idx };
     }
     return (struct pcntr_field){ .ptr = NULL };
 }
@@ -145,6 +148,10 @@ static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
                         unsigned int size)
 {
     struct pcntr_field field = pcntr_field(s, addr);
+    const hwaddr pcntr3_off = 8;
+    const uint32_t reset_shift = 16;
+    const uint32_t pin_cnt = 16;
+    uint32_t val32 = val64;
 
     if (!field.ptr) {
         qemu_log_mask(LOG_GUEST_ERROR,
@@ -153,6 +160,19 @@ static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
         return;
     }
     memcpy(field.ptr, &val64, size);
+
+    if (field.off == pcntr3_off) {
+        fprintf(stderr, "Changing on port %ld ", field.idx);
+        for (uint32_t i = 0; i < pin_cnt; i++) {
+            if (val32 & (1 << i)) {
+                fprintf(stderr, "setting %d ", i);
+            } else if (val32 & (1 << (i + reset_shift))) {
+                fprintf(stderr, "resetting %d ", i);
+            }
+        }
+        fprintf(stderr, "\n");
+        fflush(stderr);
+    }
 }
 
 struct region_idx {
