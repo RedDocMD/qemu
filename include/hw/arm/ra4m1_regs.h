@@ -4,6 +4,7 @@
 #include "qemu/osdep.h"
 #include "qom/object.h"
 #include "hw/sysbus.h"
+#include "chardev/char-fe.h"
 
 #define TYPE_RA4M1_REGS "ra4m1-regs"
 OBJECT_DECLARE_SIMPLE_TYPE(RA4M1RegsState, RA4M1_REGS)
@@ -48,6 +49,7 @@ struct __attribute__((packed)) pcntr {
 typedef struct RA4M1RegsState {
     SysBusDevice parent_obj;
     MemoryRegion mmio[RA4M1_REG_REGION_CNT];
+    CharBackend chr;
 
     uint8_t vbtcr1;
     uint8_t vbtsr;

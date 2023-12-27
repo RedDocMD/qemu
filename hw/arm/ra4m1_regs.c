@@ -1,7 +1,12 @@
 #include "hw/arm/ra4m1_regs.h"
+#include "chardev/char-fe.h"
+#include "chardev/char.h"
 #include "exec/hwaddr.h"
+#include "qapi/error.h"
 #include "qemu/log.h"
 #include "migration/vmstate.h"
+
+#define WEBSOCKET_NAME "pin"
 
 #define set_bit_from(dest, src, bit)     \
     do {                                 \
@@ -144,6 +149,19 @@ static uint64_t read_pcntr(RA4M1RegsState *s, hwaddr addr, unsigned int size)
     }
 }
 
+struct digital_write {
+    uint32_t port;
+    uint32_t pin;
+    uint32_t value;
+};
+
+static size_t digital_write_to_json(const struct digital_write *dw, char *buf,
+                                    size_t len)
+{
+    return snprintf(buf, len, "{\"port\":%d,\"pin\":%d,\"value\":%d}", dw->port,
+                    dw->pin, dw->value);
+}
+
 static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
                         unsigned int size)
 {
@@ -152,6 +170,10 @@ static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     const uint32_t reset_shift = 16;
     const uint32_t pin_cnt = 16;
     uint32_t val32 = val64;
+
+    struct digital_write dw;
+    char json_buf[500];
+    size_t json_len;
 
     if (!field.ptr) {
         qemu_log_mask(LOG_GUEST_ERROR,
@@ -162,16 +184,21 @@ static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     memcpy(field.ptr, &val64, size);
 
     if (field.off == pcntr3_off) {
-        fprintf(stderr, "Changing on port %ld ", field.idx);
+        dw.port = field.idx;
         for (uint32_t i = 0; i < pin_cnt; i++) {
+            dw.pin = i;
             if (val32 & (1 << i)) {
-                fprintf(stderr, "setting %d ", i);
+                dw.value = 1;
+                json_len =
+                    digital_write_to_json(&dw, json_buf, sizeof(json_buf));
+                qemu_chr_fe_write_all(&s->chr, (void *)json_buf, json_len);
             } else if (val32 & (1 << (i + reset_shift))) {
-                fprintf(stderr, "resetting %d ", i);
+                dw.value = 0;
+                json_len =
+                    digital_write_to_json(&dw, json_buf, sizeof(json_buf));
+                qemu_chr_fe_write_all(&s->chr, (void *)json_buf, json_len);
             }
         }
-        fprintf(stderr, "\n");
-        fflush(stderr);
     }
 }
 
@@ -362,6 +389,7 @@ static void ra4m1_regs_init(Object *ob)
     RA4M1RegsState *s = RA4M1_REGS(ob);
     static struct region_idx indices[RA4M1_REG_REGION_CNT];
     char name[20];
+    Chardev *chardev;
 
     for (int i = 0; i < RA4M1_REG_REGION_CNT; i++) {
         indices[i].state = s;
@@ -371,6 +399,12 @@ static void ra4m1_regs_init(Object *ob)
                               name, regions[i].size);
         sysbus_init_mmio(SYS_BUS_DEVICE(ob), &s->mmio[i]);
     }
+
+    if (!(chardev = qemu_chr_find(WEBSOCKET_NAME))) {
+        error_setg(&error_abort, "Failed to find socket of id: %s",
+                   WEBSOCKET_NAME);
+    }
+    qemu_chr_fe_init(&s->chr, chardev, &error_abort);
 }
 
 static const VMStateDescription vmstate_ra4m1_regs = {
