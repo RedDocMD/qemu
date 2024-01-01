@@ -15,7 +15,7 @@ struct __region {
     hwaddr shift;
 };
 
-#define RA4M1_REG_REGION_CNT 3
+#define RA4M1_REG_REGION_CNT 4
 extern struct __region regions[RA4M1_REG_REGION_CNT];
 
 #define PCNTR_CNT 10

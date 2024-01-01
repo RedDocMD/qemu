@@ -56,6 +56,7 @@
 #define SOMCR_OFF        0x1E481
 #define VBTSR_OFF        0x1E4B1
 #define USBFS_SYSCFG     0x90000
+#define DELAY_OFF        0x800000
 
 #define PCNTR_BASE       0x40000
 #define PCNTR_SHIFT      0x20
@@ -365,6 +366,9 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
     case USBFS_SYSCFG:
         set_with(&s->usbfs_syscfg, (uint16_t)val64, "0 3 4 5 6 8 10");
         return;
+    case DELAY_OFF:
+        g_usleep((uint32_t)val64 * 1000);
+        return;
     default:
         qemu_log_mask(LOG_GUEST_ERROR,
                       "%s: Bad offset 0x%" HWADDR_PRIx " for regs lo\n",
@@ -382,6 +386,7 @@ struct __region regions[RA4M1_REG_REGION_CNT] = {
     { .off = 0x40000000, .size = 0x6000, .shift = 0 },
     { .off = 0x40007000, .size = 0x69000, .shift = 0x7000 },
     { .off = 0x40080000, .size = 0x80000, .shift = 0x80000 },
+    { .off = 0x40800000, .size = 0x10, .shift = 0x800000 },
 };
 
 static void ra4m1_regs_init(Object *ob)
