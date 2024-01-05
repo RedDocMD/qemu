@@ -63,7 +63,23 @@
 
 #define PmnPFS_BASE      0x40800
 #define PmnPFS_END       0x40A7C
+
+#define GPT_SHIFT        0x100
+#define GTSTR_BASE       0x78004
 // clang-format on
+
+struct digital_write {
+    uint32_t port;
+    uint32_t pin;
+    float value;
+};
+
+static size_t digital_write_to_json(const struct digital_write *dw, char *buf,
+                                    size_t len)
+{
+    return snprintf(buf, len, "{\"port\":%d,\"pin\":%d,\"value\":%f}", dw->port,
+                    dw->pin, dw->value);
+}
 
 static bool ra4m1_regs_battery_regs_write_allowed(const RA4M1RegsState *s)
 {
@@ -108,6 +124,22 @@ static bool is_pcntr_offset(hwaddr off)
 static bool is_pmnpfs_offset(hwaddr off)
 {
     return off >= PmnPFS_BASE && off <= PmnPFS_END;
+}
+
+static int gtstr_idx(hwaddr off)
+{
+    hwaddr curr_addr;
+    for (int idx = 0; idx < GPT_CNT; idx++) {
+        curr_addr = GTSTR_BASE + idx * GPT_SHIFT;
+        if (curr_addr == off)
+            return idx;
+    }
+    return -1;
+}
+
+static bool is_gtstr_offset(hwaddr off)
+{
+    return gtstr_idx(off) != -1;
 }
 
 struct pcntr_field {
@@ -159,19 +191,6 @@ static uint64_t read_pcntr(RA4M1RegsState *s, hwaddr addr, unsigned int size)
     }
 }
 
-struct digital_write {
-    uint32_t port;
-    uint32_t pin;
-    uint32_t value;
-};
-
-static size_t digital_write_to_json(const struct digital_write *dw, char *buf,
-                                    size_t len)
-{
-    return snprintf(buf, len, "{\"port\":%d,\"pin\":%d,\"value\":%d}", dw->port,
-                    dw->pin, dw->value);
-}
-
 static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
                         unsigned int size)
 {
@@ -198,7 +217,7 @@ static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
         for (uint32_t i = 0; i < pin_cnt; i++) {
             dw.pin = i;
             if (val32 & (1 << i)) {
-                dw.value = 1;
+                dw.value = VREF;
                 json_len =
                     digital_write_to_json(&dw, json_buf, sizeof(json_buf));
                 qemu_chr_fe_write_all(&s->chr, (void *)json_buf, json_len);
@@ -212,64 +231,34 @@ static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     }
 }
 
+struct {
+    int port;
+    int pin;
+} pin_cfg[PIN_CNT] = {
+    { .port = 3, .pin = 1 },  { .port = 3, .pin = 2 },
+    { .port = 1, .pin = 5 },  { .port = 1, .pin = 4 },
+    { .port = 1, .pin = 3 },  { .port = 1, .pin = 2 },
+    { .port = 1, .pin = 6 },  { .port = 1, .pin = 7 },
+    { .port = 3, .pin = 4 },  { .port = 3, .pin = 3 },
+    { .port = 1, .pin = 12 }, { .port = 1, .pin = 9 },
+    { .port = 1, .pin = 10 }, { .port = 1, .pin = 11 },
+    { .port = 0, .pin = 14 }, { .port = 0, .pin = 0 },
+    { .port = 0, .pin = 1 },  { .port = 0, .pin = 2 },
+    { .port = 1, .pin = 1 },  { .port = 1, .pin = 0 },
+    { .port = 5, .pin = 0 },  { .port = 0, .pin = 12 },
+    { .port = 0, .pin = 13 }, { .port = 5, .pin = 1 },
+    { .port = 5, .pin = 2 },  { .port = 1, .pin = 8 },
+    { .port = 3, .pin = 0 },
+};
+
 static int map_portpin_to_pin(int port, int pin)
 {
-    if (port == 3 && pin == 1)
-        return 0;
-    else if (port == 3 && pin == 2)
-        return 1;
-    else if (port == 1 && pin == 5)
-        return 2;
-    else if (port == 1 && pin == 4)
-        return 3;
-    else if (port == 1 && pin == 3)
-        return 4;
-    else if (port == 1 && pin == 2)
-        return 5;
-    else if (port == 1 && pin == 6)
-        return 6;
-    else if (port == 1 && pin == 7)
-        return 7;
-    else if (port == 3 && pin == 4)
-        return 8;
-    else if (port == 3 && pin == 3)
-        return 9;
-    else if (port == 1 && pin == 12)
-        return 10;
-    else if (port == 1 && pin == 9)
-        return 11;
-    else if (port == 1 && pin == 10)
-        return 12;
-    else if (port == 1 && pin == 11)
-        return 13;
-    else if (port == 0 && pin == 14)
-        return 14;
-    else if (port == 0 && pin == 0)
-        return 15;
-    else if (port == 0 && pin == 1)
-        return 16;
-    else if (port == 0 && pin == 2)
-        return 17;
-    else if (port == 1 && pin == 1)
-        return 18;
-    else if (port == 1 && pin == 0)
-        return 19;
-    else if (port == 5 && pin == 0)
-        return 20;
-    else if (port == 0 && pin == 12)
-        return 21;
-    else if (port == 0 && pin == 13)
-        return 22;
-    else if (port == 5 && pin == 1)
-        return 23;
-    else if (port == 5 && pin == 2)
-        return 24;
-    else if (port == 1 && pin == 8)
-        return 25;
-    else if (port == 3 && pin == 0)
-        return 26;
-    else
-        return -1;
+    for (int i = 0; i < PIN_CNT; i++) {
+        if (pin_cfg[i].pin == pin && pin_cfg[i].port == port) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 static void write_pmnpfs(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
@@ -303,6 +292,51 @@ static void write_pmnpfs(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
 
     if (pmr == pmr_peri && psel == psel_gpt1) {
         s->analog_enabled[actual_pin] = true;
+    }
+}
+
+static int map_gpt_to_pin(int idx)
+{
+    switch (idx) {
+    case 1:
+        return 3;
+    case 2:
+        return 5;
+    case 0:
+        return 6;
+    case 7:
+        return 9;
+    case 3:
+        return 10;
+    }
+    return -1;
+}
+
+static void write_gtstr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
+                        unsigned int size)
+{
+    int pin;
+    bool old;
+    struct digital_write dw = { .value = VREF / 2.0f };
+    char json_buf[500];
+    size_t json_len;
+
+    for (int idx = 0; idx < GPT_CNT; idx++) {
+        if (val64 & (1 << idx)) {
+            old = s->gpt_on[idx];
+            s->gpt_on[idx] = true;
+            if (old)
+                continue;
+
+            pin = map_gpt_to_pin(idx);
+            if (pin == -1)
+                continue;
+
+            dw.port = pin_cfg[pin].port;
+            dw.pin = pin_cfg[pin].pin;
+            json_len = digital_write_to_json(&dw, json_buf, sizeof(json_buf));
+            qemu_chr_fe_write_all(&s->chr, (void *)json_buf, json_len);
+        }
     }
 }
 
@@ -378,6 +412,11 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
 
     if (is_pmnpfs_offset(addr)) {
         write_pmnpfs(s, addr, val64, size);
+        return;
+    }
+
+    if (is_gtstr_offset(addr)) {
+        write_gtstr(s, addr, val64, size);
         return;
     }
 
@@ -493,6 +532,7 @@ static const MemoryRegionOps ra4m1_regs_ops = {
 struct __region regions[RA4M1_REG_REGION_CNT] = {
     { .off = 0x40000000, .size = 0x6000, .shift = 0 },
     { .off = 0x40007000, .size = 0x69000, .shift = 0x7000 },
+    { .off = 0x40078000, .size = 0x8000, .shift = 0x78000 },
     { .off = 0x40080000, .size = 0x80000, .shift = 0x80000 },
     { .off = 0x40800000, .size = 0x10, .shift = 0x800000 },
 };

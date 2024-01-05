@@ -15,10 +15,11 @@ struct __region {
     hwaddr shift;
 };
 
-#define RA4M1_REG_REGION_CNT 4
+#define RA4M1_REG_REGION_CNT 5
 extern struct __region regions[RA4M1_REG_REGION_CNT];
 
 #define PCNTR_CNT 10
+#define GPT_CNT 8
 
 struct __attribute__((packed)) pcntr {
     union {
@@ -47,6 +48,8 @@ struct __attribute__((packed)) pcntr {
 };
 
 #define PIN_CNT 27
+#define GPT_CNT 8
+#define VREF 5
 
 typedef struct RA4M1RegsState {
     SysBusDevice parent_obj;
@@ -70,6 +73,7 @@ typedef struct RA4M1RegsState {
     uint16_t usbfs_syscfg;
     struct pcntr pcntr[PCNTR_CNT];
     bool analog_enabled[PIN_CNT];
+    bool gpt_on[GPT_CNT];
 } RA4M1RegsState;
 
 #define RA4M1_FLASH_REGS_OFF 0x407E0000
