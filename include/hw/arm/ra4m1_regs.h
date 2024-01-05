@@ -46,6 +46,8 @@ struct __attribute__((packed)) pcntr {
     } pcntr3;
 };
 
+#define PIN_CNT 27
+
 typedef struct RA4M1RegsState {
     SysBusDevice parent_obj;
     MemoryRegion mmio[RA4M1_REG_REGION_CNT];
@@ -67,6 +69,7 @@ typedef struct RA4M1RegsState {
     uint8_t memwait;
     uint16_t usbfs_syscfg;
     struct pcntr pcntr[PCNTR_CNT];
+    bool analog_enabled[PIN_CNT];
 } RA4M1RegsState;
 
 #define RA4M1_FLASH_REGS_OFF 0x407E0000

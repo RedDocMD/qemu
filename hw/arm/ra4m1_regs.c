@@ -60,6 +60,9 @@
 
 #define PCNTR_BASE       0x40000
 #define PCNTR_SHIFT      0x20
+
+#define PmnPFS_BASE      0x40800
+#define PmnPFS_END       0x40A7C
 // clang-format on
 
 static bool ra4m1_regs_battery_regs_write_allowed(const RA4M1RegsState *s)
@@ -92,6 +95,7 @@ static void ra4m1_regs_reset(DeviceState *dev)
     s->memwait = 0x00;
     s->usbfs_syscfg = 0x0000;
     bzero(s->pcntr, sizeof(s->pcntr));
+    bzero(s->analog_enabled, sizeof(s->analog_enabled));
 }
 
 static bool is_pcntr_offset(hwaddr off)
@@ -99,6 +103,11 @@ static bool is_pcntr_offset(hwaddr off)
     if (off < PCNTR_BASE)
         return false;
     return (off - PCNTR_BASE) < FIELD_SIZEOF(RA4M1RegsState, pcntr);
+}
+
+static bool is_pmnpfs_offset(hwaddr off)
+{
+    return off >= PmnPFS_BASE && off <= PmnPFS_END;
 }
 
 struct pcntr_field {
@@ -203,6 +212,100 @@ static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     }
 }
 
+static int map_portpin_to_pin(int port, int pin)
+{
+    if (port == 3 && pin == 1)
+        return 0;
+    else if (port == 3 && pin == 2)
+        return 1;
+    else if (port == 1 && pin == 5)
+        return 2;
+    else if (port == 1 && pin == 4)
+        return 3;
+    else if (port == 1 && pin == 3)
+        return 4;
+    else if (port == 1 && pin == 2)
+        return 5;
+    else if (port == 1 && pin == 6)
+        return 6;
+    else if (port == 1 && pin == 7)
+        return 7;
+    else if (port == 3 && pin == 4)
+        return 8;
+    else if (port == 3 && pin == 3)
+        return 9;
+    else if (port == 1 && pin == 12)
+        return 10;
+    else if (port == 1 && pin == 9)
+        return 11;
+    else if (port == 1 && pin == 10)
+        return 12;
+    else if (port == 1 && pin == 11)
+        return 13;
+    else if (port == 0 && pin == 14)
+        return 14;
+    else if (port == 0 && pin == 0)
+        return 15;
+    else if (port == 0 && pin == 1)
+        return 16;
+    else if (port == 0 && pin == 2)
+        return 17;
+    else if (port == 1 && pin == 1)
+        return 18;
+    else if (port == 1 && pin == 0)
+        return 19;
+    else if (port == 5 && pin == 0)
+        return 20;
+    else if (port == 0 && pin == 12)
+        return 21;
+    else if (port == 0 && pin == 13)
+        return 22;
+    else if (port == 5 && pin == 1)
+        return 23;
+    else if (port == 5 && pin == 2)
+        return 24;
+    else if (port == 1 && pin == 8)
+        return 25;
+    else if (port == 3 && pin == 0)
+        return 26;
+    else
+        return -1;
+}
+
+static void write_pmnpfs(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
+                         unsigned int size)
+{
+    const int pmnpfs_size = 4;
+    const int pin_cnt = 16;
+    const int offset_mask = 0xFFF;
+    const int offset_base = 0x800;
+    const int psel_off = 24;
+    const int psel_mask = 0x1F;
+    const int pmr_off = 16;
+    const int pmr_mask = 0x1;
+    const int psel_gpt1 = 0x3;
+    const int pmr_peri = 0x1;
+    hwaddr offset;
+    int port, pin, pmr, psel, actual_pin;
+
+    offset = addr & offset_mask;
+    port = (offset - offset_base) / (pmnpfs_size * pin_cnt);
+    pin =
+        ((offset - offset_base) - (port * pmnpfs_size * pin_cnt)) / pmnpfs_size;
+    pmr = (val64 >> pmr_off) & pmr_mask;
+    psel = (val64 >> psel_off) & psel_mask;
+
+    if ((actual_pin = map_portpin_to_pin(port, pin)) == -1) {
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad (port, pin): (%d, %d)\n",
+                      __func__, port, pin);
+        return;
+    }
+
+    if (pmr == pmr_peri && psel == psel_gpt1) {
+        s->analog_enabled[actual_pin] = true;
+    }
+}
+
 struct region_idx {
     RA4M1RegsState *state;
     int idx;
@@ -270,6 +373,11 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
 
     if (is_pcntr_offset(addr)) {
         write_pcntr(s, addr, val64, size);
+        return;
+    }
+
+    if (is_pmnpfs_offset(addr)) {
+        write_pmnpfs(s, addr, val64, size);
         return;
     }
 
