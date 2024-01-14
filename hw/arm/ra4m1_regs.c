@@ -66,6 +66,7 @@
 
 #define GPT_SHIFT        0x100
 #define GTSTR_BASE       0x78004
+#define GTCCR_BASE       0x7804C
 // clang-format on
 
 struct digital_write {
@@ -140,6 +141,35 @@ static int gtstr_idx(hwaddr off)
 static bool is_gtstr_offset(hwaddr off)
 {
     return gtstr_idx(off) != -1;
+}
+
+struct gtccr_reg {
+    int gpt;
+    int off;
+};
+
+static void gtccr_idx(hwaddr addr, struct gtccr_reg *reg)
+{
+    hwaddr curr_addr;
+    for (int gpt = 0; gpt < GPT_CNT; ++gpt) {
+        for (int off = 0; off < 6; ++off) {
+            curr_addr = GTCCR_BASE + gpt * GPT_SHIFT + off * 4;
+            if (curr_addr == addr) {
+                reg->gpt = gpt;
+                reg->off = off;
+                return;
+            }
+        }
+    }
+    reg->gpt = -1;
+    reg->off = -1;
+}
+
+static bool is_gtccr_offset(hwaddr off)
+{
+    struct gtccr_reg reg;
+    gtccr_idx(off, &reg);
+    return reg.gpt != -1;
 }
 
 struct pcntr_field {
@@ -340,6 +370,54 @@ static void write_gtstr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     }
 }
 
+enum gpt_channel {
+    GPT_CHANNEL_A = 0,
+    GPT_CHANNEL_B = 1,
+};
+
+static int map_gpt_and_chan_to_pin(int gpt, int chan)
+{
+    if (gpt == 1 && chan == GPT_CHANNEL_B) {
+        return 3;
+    } else if (gpt == 2 && chan == GPT_CHANNEL_B) {
+        return 5;
+    } else if (gpt == 0 && chan == GPT_CHANNEL_B) {
+        return 6;
+    } else if (gpt == 7 && chan == GPT_CHANNEL_B) {
+        return 7;
+    } else if (gpt == 3 && chan == GPT_CHANNEL_B) {
+        return 10;
+    } else if (gpt == 1 && chan == GPT_CHANNEL_A) {
+        return 11;
+    } else {
+        return -1;
+    }
+}
+
+static void write_gtccr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
+                        unsigned int size)
+{
+    struct gtccr_reg reg;
+    int pin;
+    int chan;
+
+    gtccr_idx(addr, &reg);
+    printf("Gpt = %d, Idx = %d, Val = %ld\n", reg.gpt, reg.off, val64);
+    if (reg.off == 2) {
+        chan = GPT_CHANNEL_A;
+    } else if (reg.off == 3) {
+        chan = GPT_CHANNEL_B;
+    } else {
+        return;
+    }
+    pin = map_gpt_and_chan_to_pin(reg.gpt, chan);
+    if (pin == -1) {
+        return;
+    }
+    // fprintf(stderr, "Set pin %d to value %ld\n", pin, val64);
+    // fflush(stderr);
+}
+
 struct region_idx {
     RA4M1RegsState *state;
     int idx;
@@ -417,6 +495,18 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
 
     if (is_gtstr_offset(addr)) {
         write_gtstr(s, addr, val64, size);
+        return;
+    }
+
+    // for (int gpt = 0; gpt < GPT_CNT; gpt++) {
+    //     if (addr == 0x78064 + GPT_SHIFT * gpt) {
+    //         printf("Write addr = %ld, gpt = %d, GTPR = %ld\n", addr, gpt,
+    //                val64);
+    //     }
+    // }
+
+    if (is_gtccr_offset(addr)) {
+        write_gtccr(s, addr, val64, size);
         return;
     }
 
