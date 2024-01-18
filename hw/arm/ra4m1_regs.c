@@ -65,8 +65,7 @@
 #define PmnPFS_END       0x40A7C
 
 #define GPT_SHIFT        0x100
-#define GTSTR_BASE       0x78004
-#define GTCCR_BASE       0x7804C
+#define GPT_BASE         0x78000
 // clang-format on
 
 struct digital_write {
@@ -92,6 +91,23 @@ static bool ra4m1_regs_clock_regs_write_allowed(const RA4M1RegsState *s)
     return (s->prcr & 0x1);
 }
 
+static void gpt_regs_reset(struct gpt_regs *regs, bool sixteen_bit)
+{
+    uint32_t cmp_res = sixteen_bit ? 0xFFFF : 0xFFFFFFFF;
+
+    bzero(regs, sizeof(*regs));
+    regs->gtstp = 0xFFFFFFFF;
+    regs->gtuddtyc = 1;
+    regs->gtst = 0x8000;
+    regs->gtccra = cmp_res;
+    regs->gtccrb = cmp_res;
+    regs->gtccrc = cmp_res;
+    regs->gtccrd = cmp_res;
+    regs->gtccre = cmp_res;
+    regs->gtccrf = cmp_res;
+    regs->gtdvu = cmp_res;
+}
+
 static void ra4m1_regs_reset(DeviceState *dev)
 {
     RA4M1RegsState *s = RA4M1_REGS(dev);
@@ -113,6 +129,10 @@ static void ra4m1_regs_reset(DeviceState *dev)
     s->usbfs_syscfg = 0x0000;
     bzero(s->pcntr, sizeof(s->pcntr));
     bzero(s->analog_enabled, sizeof(s->analog_enabled));
+    for (int i = 0; i < GPT_CNT; i++) {
+        gpt_regs_reset(s->gpt_regs + i, i >= 2);
+    }
+    bzero(s->pmnpfs, sizeof(s->pmnpfs));
 }
 
 static bool is_pcntr_offset(hwaddr off)
@@ -127,49 +147,40 @@ static bool is_pmnpfs_offset(hwaddr off)
     return off >= PmnPFS_BASE && off <= PmnPFS_END;
 }
 
-static int gtstr_idx(hwaddr off)
+static bool is_gpt_offset(hwaddr off)
 {
-    hwaddr curr_addr;
-    for (int idx = 0; idx < GPT_CNT; idx++) {
-        curr_addr = GTSTR_BASE + idx * GPT_SHIFT;
-        if (curr_addr == off)
-            return idx;
+    hwaddr base;
+    for (int i = 0; i < GPT_CNT; i++) {
+        base = GPT_BASE + i * GPT_SHIFT;
+        if (off < base)
+            return false;
+        if ((off - base) < sizeof(struct gpt_regs))
+            return true;
     }
-    return -1;
+    return false;
 }
 
-static bool is_gtstr_offset(hwaddr off)
-{
-    return gtstr_idx(off) != -1;
-}
-
-struct gtccr_reg {
-    int gpt;
-    int off;
+struct gpt_field {
+    uint32_t *field;
+    size_t field_off;
+    int gpt_idx;
 };
 
-static void gtccr_idx(hwaddr addr, struct gtccr_reg *reg)
+static struct gpt_field gpt_field(RA4M1RegsState *s, hwaddr addr)
 {
-    hwaddr curr_addr;
-    for (int gpt = 0; gpt < GPT_CNT; ++gpt) {
-        for (int off = 0; off < 6; ++off) {
-            curr_addr = GTCCR_BASE + gpt * GPT_SHIFT + off * 4;
-            if (curr_addr == addr) {
-                reg->gpt = gpt;
-                reg->off = off;
-                return;
-            }
-        }
+    hwaddr base, off;
+    for (int i = 0; i < GPT_CNT; i++) {
+        base = GPT_BASE + i * GPT_SHIFT;
+        off = addr - base;
+        if (off >= sizeof(struct gpt_regs))
+            continue;
+        return (struct gpt_field){
+            .field = (uint32_t *)((uintptr_t)(s->gpt_regs + i) + off),
+            .field_off = off,
+            .gpt_idx = i,
+        };
     }
-    reg->gpt = -1;
-    reg->off = -1;
-}
-
-static bool is_gtccr_offset(hwaddr off)
-{
-    struct gtccr_reg reg;
-    gtccr_idx(off, &reg);
-    return reg.gpt != -1;
+    return (struct gpt_field){ .field = 0 };
 }
 
 struct pcntr_field {
@@ -219,6 +230,35 @@ static uint64_t read_pcntr(RA4M1RegsState *s, hwaddr addr, unsigned int size)
                       __func__, size, addr);
         return 0;
     }
+}
+
+static uint32_t read_pmnpfs(RA4M1RegsState *s, hwaddr addr, unsigned int size)
+{
+    const int pmnpfs_size = 4;
+    const int pin_cnt = 16;
+    const int offset_mask = 0xFFF;
+    const int offset_base = 0x800;
+    hwaddr offset;
+    int port, pin;
+
+    offset = addr & offset_mask;
+    port = (offset - offset_base) / (pmnpfs_size * pin_cnt);
+    pin =
+        ((offset - offset_base) - (port * pmnpfs_size * pin_cnt)) / pmnpfs_size;
+
+    return s->pmnpfs[port][pin];
+}
+
+static uint32_t read_gpt(RA4M1RegsState *s, hwaddr addr, unsigned int size)
+{
+    struct gpt_field gf = gpt_field(s, addr);
+    if (!gf.field) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "%s: Bad read offset 0x%" HWADDR_PRIx " for GPT regs\n",
+                      __func__, addr);
+        return 0;
+    }
+    return *gf.field;
 }
 
 static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
@@ -314,6 +354,8 @@ static void write_pmnpfs(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     pmr = (val64 >> pmr_off) & pmr_mask;
     psel = (val64 >> psel_off) & psel_mask;
 
+    s->pmnpfs[port][pin] = (uint32_t)val64;
+
     if ((actual_pin = map_portpin_to_pin(port, pin)) == -1) {
         qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad (port, pin): (%d, %d)\n",
                       __func__, port, pin);
@@ -325,49 +367,35 @@ static void write_pmnpfs(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     }
 }
 
-static int map_gpt_to_pin(int idx)
+static int *map_gpt_to_pin(int idx, int *pin_cnt)
 {
+    static int pins[2];
     switch (idx) {
     case 1:
-        return 3;
+        pins[0] = 3;
+        pins[1] = 11;
+        *pin_cnt = 2;
+        break;
     case 2:
-        return 5;
+        pins[0] = 5;
+        *pin_cnt = 1;
+        break;
     case 0:
-        return 6;
+        pins[0] = 6;
+        *pin_cnt = 1;
+        break;
     case 7:
-        return 9;
+        pins[0] = 9;
+        *pin_cnt = 1;
+        break;
     case 3:
-        return 10;
+        pins[0] = 10;
+        *pin_cnt = 1;
+        break;
+    default:
+        *pin_cnt = -1;
     }
-    return -1;
-}
-
-static void write_gtstr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
-                        unsigned int size)
-{
-    int pin;
-    bool old;
-    struct digital_write dw = { .value = VREF / 2.0f };
-    char json_buf[500];
-    size_t json_len;
-
-    for (int idx = 0; idx < GPT_CNT; idx++) {
-        if (val64 & (1 << idx)) {
-            old = s->gpt_on[idx];
-            s->gpt_on[idx] = true;
-            if (old)
-                continue;
-
-            pin = map_gpt_to_pin(idx);
-            if (pin == -1)
-                continue;
-
-            dw.port = pin_cfg[pin].port;
-            dw.pin = pin_cfg[pin].pin;
-            json_len = digital_write_to_json(&dw, json_buf, sizeof(json_buf));
-            qemu_chr_fe_write_all(&s->chr, (void *)json_buf, json_len);
-        }
-    }
+    return pins;
 }
 
 enum gpt_channel {
@@ -394,28 +422,57 @@ static int map_gpt_and_chan_to_pin(int gpt, int chan)
     }
 }
 
-static void write_gtccr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
-                        unsigned int size)
+static void write_gpt(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
+                      unsigned int size)
 {
-    struct gtccr_reg reg;
-    int pin;
-    int chan;
+    struct gpt_field gf = gpt_field(s, addr);
+    struct digital_write dw;
+    char json_buf[500];
+    size_t json_len;
+    bool old;
+    int pin, idx, chan, pin_cnt;
+    int *pins;
 
-    gtccr_idx(addr, &reg);
-    printf("Gpt = %d, Idx = %d, Val = %ld\n", reg.gpt, reg.off, val64);
-    if (reg.off == 2) {
-        chan = GPT_CHANNEL_A;
-    } else if (reg.off == 3) {
-        chan = GPT_CHANNEL_B;
-    } else {
+    if (!gf.field) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "%s: Bad read offset 0x%" HWADDR_PRIx " for GPT regs\n",
+                      __func__, addr);
         return;
     }
-    pin = map_gpt_and_chan_to_pin(reg.gpt, chan);
-    if (pin == -1) {
-        return;
+    *gf.field = (uint32_t)val64;
+
+    if (gf.field_off == offsetof(struct gpt_regs, gtstr)) {
+        if (val64 & (1 << gf.gpt_idx)) {
+            old = s->gpt_on[gf.gpt_idx];
+            s->gpt_on[gf.gpt_idx] = true;
+            if (old) {
+                return;
+            }
+
+            pins = map_gpt_to_pin(gf.gpt_idx, &pin_cnt);
+            if (pin_cnt == -1) {
+                return;
+            }
+
+            for (int i = 0; i < pin_cnt; i++) {
+                pin = pins[i];
+                if (!s->analog_enabled[pin])
+                    continue;
+                dw.value = VREF / 2.0f;
+                dw.port = pin_cfg[pin].port;
+                dw.pin = pin_cfg[pin].pin;
+                json_len =
+                    digital_write_to_json(&dw, json_buf, sizeof(json_buf));
+                qemu_chr_fe_write_all(&s->chr, (void *)json_buf, json_len);
+            }
+        }
+    } else if (gf.field_off >= offsetof(struct gpt_regs, gtccra) &&
+               gf.field_off <= offsetof(struct gpt_regs, gtccrf)) {
+        idx = (gf.field_off - offsetof(struct gpt_regs, gtccra)) / 4;
+        chan = (idx == 0 || idx == 2 || idx == 4) ? GPT_CHANNEL_A :
+                                                    GPT_CHANNEL_B;
+        pin = map_gpt_and_chan_to_pin(gf.gpt_idx, chan);
     }
-    // fprintf(stderr, "Set pin %d to value %ld\n", pin, val64);
-    // fflush(stderr);
 }
 
 struct region_idx {
@@ -433,6 +490,14 @@ static uint64_t ra4m1_regs_read(void *opaque, hwaddr addr, unsigned int size)
 
     if (is_pcntr_offset(addr)) {
         return read_pcntr(s, addr, size);
+    }
+
+    if (is_pmnpfs_offset(addr)) {
+        return read_pmnpfs(s, addr, size);
+    }
+
+    if (is_gpt_offset(addr)) {
+        return read_gpt(s, addr, size);
     }
 
     switch (addr) {
@@ -493,20 +558,8 @@ static void ra4m1_regs_write(void *opaque, hwaddr addr, uint64_t val64,
         return;
     }
 
-    if (is_gtstr_offset(addr)) {
-        write_gtstr(s, addr, val64, size);
-        return;
-    }
-
-    // for (int gpt = 0; gpt < GPT_CNT; gpt++) {
-    //     if (addr == 0x78064 + GPT_SHIFT * gpt) {
-    //         printf("Write addr = %ld, gpt = %d, GTPR = %ld\n", addr, gpt,
-    //                val64);
-    //     }
-    // }
-
-    if (is_gtccr_offset(addr)) {
-        write_gtccr(s, addr, val64, size);
+    if (is_gpt_offset(addr)) {
+        write_gpt(s, addr, val64, size);
         return;
     }
 
