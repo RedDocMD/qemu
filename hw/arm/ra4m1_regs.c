@@ -106,6 +106,8 @@ static void gpt_regs_reset(struct gpt_regs *regs, bool sixteen_bit)
     regs->gtccre = cmp_res;
     regs->gtccrf = cmp_res;
     regs->gtdvu = cmp_res;
+    regs->gtpr = cmp_res;
+    regs->gtpbr = cmp_res;
 }
 
 static void ra4m1_regs_reset(DeviceState *dev)
@@ -430,7 +432,7 @@ static void write_gpt(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     char json_buf[500];
     size_t json_len;
     bool old;
-    int pin, idx, chan, pin_cnt;
+    int pin, idx, chan, pin_cnt, period;
     int *pins;
 
     if (!gf.field) {
@@ -469,9 +471,17 @@ static void write_gpt(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     } else if (gf.field_off >= offsetof(struct gpt_regs, gtccra) &&
                gf.field_off <= offsetof(struct gpt_regs, gtccrf)) {
         idx = (gf.field_off - offsetof(struct gpt_regs, gtccra)) / 4;
-        chan = (idx == 0 || idx == 2 || idx == 4) ? GPT_CHANNEL_A :
-                                                    GPT_CHANNEL_B;
+        chan = (idx == 0 || idx == 2 || idx == 4) ? GPT_CHANNEL_B :
+                                                    GPT_CHANNEL_A;
         pin = map_gpt_and_chan_to_pin(gf.gpt_idx, chan);
+        if (pin == -1)
+            return;
+        period = s->gpt_regs[gf.gpt_idx].gtpr;
+        dw.value = VREF * (float)val64 / (float)period;
+        dw.port = pin_cfg[pin].port;
+        dw.pin = pin_cfg[pin].pin;
+        json_len = digital_write_to_json(&dw, json_buf, sizeof(json_buf));
+        qemu_chr_fe_write_all(&s->chr, (void *)json_buf, json_len);
     }
 }
 
