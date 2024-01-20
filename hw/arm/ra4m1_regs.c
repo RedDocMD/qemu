@@ -7,6 +7,7 @@
 #include "migration/vmstate.h"
 
 #define WEBSOCKET_NAME "pin"
+#define SOCKET_NAME "scope"
 
 #define set_bit_from(dest, src, bit)     \
     do {                                 \
@@ -68,13 +69,13 @@
 #define GPT_BASE         0x78000
 // clang-format on
 
-struct digital_write {
+struct pin_write {
     uint32_t port;
     uint32_t pin;
     float value;
 };
 
-static size_t digital_write_to_json(const struct digital_write *dw, char *buf,
+static size_t digital_write_to_json(const struct pin_write *dw, char *buf,
                                     size_t len)
 {
     return snprintf(buf, len, "{\"port\":%d,\"pin\":%d,\"value\":%f}", dw->port,
@@ -272,7 +273,7 @@ static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     const uint32_t pin_cnt = 16;
     uint32_t val32 = val64;
 
-    struct digital_write dw;
+    struct pin_write dw;
     char json_buf[500];
     size_t json_len;
 
@@ -292,12 +293,14 @@ static void write_pcntr(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
                 dw.value = VREF;
                 json_len =
                     digital_write_to_json(&dw, json_buf, sizeof(json_buf));
-                qemu_chr_fe_write_all(&s->chr, (void *)json_buf, json_len);
+                qemu_chr_fe_write_all(&s->chr_ws, (void *)json_buf, json_len);
+                qemu_chr_fe_write_all(&s->chr_sock, (void *)&dw, sizeof(dw));
             } else if (val32 & (1 << (i + reset_shift))) {
                 dw.value = 0;
                 json_len =
                     digital_write_to_json(&dw, json_buf, sizeof(json_buf));
-                qemu_chr_fe_write_all(&s->chr, (void *)json_buf, json_len);
+                qemu_chr_fe_write_all(&s->chr_ws, (void *)json_buf, json_len);
+                qemu_chr_fe_write_all(&s->chr_sock, (void *)&dw, sizeof(dw));
             }
         }
     }
@@ -428,7 +431,7 @@ static void write_gpt(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
                       unsigned int size)
 {
     struct gpt_field gf = gpt_field(s, addr);
-    struct digital_write dw;
+    struct pin_write dw;
     char json_buf[500];
     size_t json_len;
     bool old;
@@ -465,7 +468,8 @@ static void write_gpt(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
                 dw.pin = pin_cfg[pin].pin;
                 json_len =
                     digital_write_to_json(&dw, json_buf, sizeof(json_buf));
-                qemu_chr_fe_write_all(&s->chr, (void *)json_buf, json_len);
+                qemu_chr_fe_write_all(&s->chr_ws, (void *)json_buf, json_len);
+                qemu_chr_fe_write_all(&s->chr_sock, (void *)&dw, sizeof(dw));
             }
         }
     } else if (gf.field_off >= offsetof(struct gpt_regs, gtccra) &&
@@ -481,7 +485,8 @@ static void write_gpt(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
         dw.port = pin_cfg[pin].port;
         dw.pin = pin_cfg[pin].pin;
         json_len = digital_write_to_json(&dw, json_buf, sizeof(json_buf));
-        qemu_chr_fe_write_all(&s->chr, (void *)json_buf, json_len);
+        qemu_chr_fe_write_all(&s->chr_ws, (void *)json_buf, json_len);
+        qemu_chr_fe_write_all(&s->chr_sock, (void *)&dw, sizeof(dw));
     }
 }
 
@@ -710,7 +715,13 @@ static void ra4m1_regs_init(Object *ob)
         error_setg(&error_abort, "Failed to find socket of id: %s",
                    WEBSOCKET_NAME);
     }
-    qemu_chr_fe_init(&s->chr, chardev, &error_abort);
+    qemu_chr_fe_init(&s->chr_ws, chardev, &error_abort);
+
+    if (!(chardev = qemu_chr_find(SOCKET_NAME))) {
+        error_setg(&error_abort, "Failed to find socket of id: %s",
+                   SOCKET_NAME);
+    }
+    qemu_chr_fe_init(&s->chr_sock, chardev, &error_abort);
 }
 
 static const VMStateDescription vmstate_ra4m1_regs = {

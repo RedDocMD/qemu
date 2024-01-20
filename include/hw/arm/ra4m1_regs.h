@@ -87,7 +87,8 @@ struct __attribute__((packed, aligned(32))) gpt_regs {
 typedef struct RA4M1RegsState {
     SysBusDevice parent_obj;
     MemoryRegion mmio[RA4M1_REG_REGION_CNT];
-    CharBackend chr;
+    CharBackend chr_ws;
+    CharBackend chr_sock;
 
     uint8_t vbtcr1;
     uint8_t vbtsr;
