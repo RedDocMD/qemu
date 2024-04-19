@@ -488,7 +488,7 @@ static void write_gpt(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
         pin = map_gpt_and_chan_to_pin(gf.gpt_idx, chan);
         if (pin == -1)
             return;
-        period = s->gpt_regs[gf.gpt_idx].gtpr;
+        period = s->gpt_regs[gf.gpt_idx].gtpbr;
         dw.value = VREF * (float)val64 / (float)period;
         dw.port = pin_cfg[pin].port;
         dw.pin = pin_cfg[pin].pin;
