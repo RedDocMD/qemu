@@ -438,12 +438,20 @@ static void write_gpt(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
     int pin, idx, chan, pin_cnt, period;
     int *pins;
 
+    uint32_t old_gtuddtyc, new_gtuddtyc;
+    uint32_t old_oadty, new_oadty, new_obdty, old_obdty;
+    const uint32_t obdty_shift = 24;
+    const uint32_t obdty_mask = 0x11 << obdty_shift;
+    const uint32_t oadty_shift = 16;
+    const uint32_t oadty_mask = 0x11 < oadty_shift;
+
     if (!gf.field) {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "%s: Bad read offset 0x%" HWADDR_PRIx " for GPT regs\n",
                       __func__, addr);
         return;
     }
+    old_gtuddtyc = s->gpt_regs[gf.gpt_idx].gtuddtyc;
     *gf.field = (uint32_t)val64;
 
     if (gf.field_off == offsetof(struct gpt_regs, gtstr)) {
@@ -482,6 +490,30 @@ static void write_gpt(RA4M1RegsState *s, hwaddr addr, uint64_t val64,
             return;
         period = s->gpt_regs[gf.gpt_idx].gtpr;
         dw.value = VREF * (float)val64 / (float)period;
+        dw.port = pin_cfg[pin].port;
+        dw.pin = pin_cfg[pin].pin;
+        json_len = digital_write_to_json(&dw, json_buf, sizeof(json_buf));
+        qemu_chr_fe_write_all(&s->chr_ws, (void *)json_buf, json_len);
+        qemu_chr_fe_write_all(&s->chr_sock, (void *)&dw, sizeof(dw));
+    } else if (gf.field_off == offsetof(struct gpt_regs, gtuddtyc)) {
+        new_gtuddtyc = s->gpt_regs[gf.gpt_idx].gtuddtyc;
+        old_oadty = (old_gtuddtyc & oadty_mask) >> oadty_shift;
+        old_obdty = (old_gtuddtyc & obdty_mask) >> obdty_shift;
+        new_oadty = (new_gtuddtyc & oadty_mask) >> oadty_shift;
+        new_obdty = (new_gtuddtyc & obdty_mask) >> obdty_shift;
+
+        if (old_obdty != new_obdty) {
+            chan = GPT_CHANNEL_B;
+            dw.value = new_obdty == 0x10 ? 0 : VREF;
+        } else if (old_oadty != new_oadty) {
+            chan = GPT_CHANNEL_A;
+            dw.value = new_oadty == 0x10 ? 0 : VREF;
+        } else {
+            return;
+        }
+        pin = map_gpt_and_chan_to_pin(gf.gpt_idx, chan);
+        if (pin == -1)
+            return;
         dw.port = pin_cfg[pin].port;
         dw.pin = pin_cfg[pin].pin;
         json_len = digital_write_to_json(&dw, json_buf, sizeof(json_buf));
